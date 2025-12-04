@@ -1,0 +1,20 @@
+steps:
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['cp', 'gs://ampersand-env/marketing/.env', './']
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/ampersand-group-418009/marketing', '.']
+  # Push the Docker image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/ampersand-group-418009/marketing']
+  # Deploy the Docker image to Cloud Run
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'marketing'
+      - '--image=gcr.io/ampersand-group-418009/marketing'
+      - '--platform=managed'
+      - '--region=us-central1' 
+options:
+  logging: CLOUD_LOGGING_ONLY
