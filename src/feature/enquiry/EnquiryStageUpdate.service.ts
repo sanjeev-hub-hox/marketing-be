@@ -294,24 +294,8 @@ export class EnquiryStageUpdateService {
               const parentName = `${parentDetails?.first_name || ''} ${parentDetails?.last_name || ''}`.trim() || parentType;
               const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
-              //! Send admission sms/mail
-              await this.notificationService.sendNotification(
-                {
-                  slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                  employee_ids: [],
-                  global_ids: [],
-                  mail_to: [parentEmail],
-                  sms_to: [parentPhone],
-                  param: {
-                    parentName: parentName,
-                    studentName: studentName,
-                    schoolName: enquiryData.school_location?.value,
-                    academicYear: enquiryData.academic_year?.value
-                  }
-                },
-                token,
-                platform
-              );
+              //! Send INITIAL notification only
+              await this.sendInitialAdmissionNotification(enquiryData);
 
               //! Employee Referral
               if (enquiryData.other_details?.enquiry_employee_source_id) {
@@ -543,11 +527,7 @@ export class EnquiryStageUpdateService {
               }
 
               try {
-                await this.referralReminderService.sendReferralReminders(
-                  enquiryData,
-                  token,
-                  platform
-                );
+                await this.referralReminderService.createReminderRecords(enquiryData);
                 this.loggerService.log(`Referral reminders sent for enquiry: ${this.enquiryDetails.enquiry_number}`);
               } catch (error) {
                 this.loggerService.error(`Error sending referral reminders: ${error.message}`, error.stack,);
@@ -573,6 +553,9 @@ export class EnquiryStageUpdateService {
       enquiry_stages: this.enquiryStages,
     });
     return;
+  }
+  sendInitialAdmissionNotification(enquiryData: Record<string, any>) {
+    throw new Error('Method not implemented.');
   }
 
   async moveToNextStage(

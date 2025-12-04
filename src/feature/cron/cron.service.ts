@@ -80,21 +80,59 @@ export class CronService {
       .sendRequest();
   }
 
-  //! Referral Cron Job
-  @Cron(referralReminderConfig.cronSchedule || '0 */4 * * *')
+  
+  @Cron('0 */4 * * *') // Every 4 hours
   async processReferralReminders(): Promise<void> {
-    if (!referralReminderConfig.enabled) {
-      console.log('[CRON] Referral reminder system is disabled');
-      return;
-    }
+    const now = new Date();
+    
+    // Query reminders that are due
+    const dueReminders = await this.reminderRepository.find({
+      status: ReminderStatus.PENDING,
+      next_scheduled_at: { $lte: now },
+      reminder_count: { $lt: this.maxReminders },
+      is_verified: false,
+    });
 
-    console.log('[CRON] Starting referral reminder job');
+    for (const reminder of dueReminders) {
+      try {
+        // Send to Kafka for async processing
+        await this.kafkaProducer.sendMessage(
+          'referral-reminders',
+          {
+            reminder_id: reminder._id.toString(),
+            enquiry_id: reminder.enquiry_id.toString(),
+            enquiry_number: reminder.enquiry_number,
+            recipient_type: reminder.recipient_type,
+            recipient_email: reminder.recipient_email,
+            recipient_phone: reminder.recipient_phone,
+            recipient_name: reminder.recipient_name,
+            verification_url: reminder.referral_details.verification_url,
+            reminder_count: reminder.reminder_count,
+          }
+        );
 
-    try {
-      const count = await this.referralReminderService.processPendingReminders();
-      console.log(`[CRON] Referral reminder job completed - Processed ${count} enquiries`);
-    } catch (error) {
-      console.error(`[CRON] Error in referral reminder job:`, error);
+        // Update reminder record
+        await this.reminderRepository.updateById(reminder._id, {
+          reminder_count: reminder.reminder_count + 1,
+          last_sent_at: now,
+          next_scheduled_at: this.calculateNextSchedule(
+            now, 
+            referralReminderConfig.frequency
+          ),
+          $push: { sent_timestamps: now },
+        });
+
+        // Mark as completed if max reached
+        if (reminder.reminder_count + 1 >= reminder.max_reminders) {
+          await this.reminderRepository.updateById(reminder._id, {
+            status: ReminderStatus.COMPLETED,
+          });
+        }
+      } catch (error) {
+        await this.reminderRepository.updateById(reminder._id, {
+          $push: { error_logs: error.message },
+        });
+      }
     }
   }
 

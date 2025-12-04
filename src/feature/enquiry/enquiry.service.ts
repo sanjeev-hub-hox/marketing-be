@@ -469,8 +469,8 @@ console.log('feeIds', feeIds);
           enquirySubSource: enquirySubSource,
           sourceNameNumber: sourceNameNumber,
           status: referralStatus,
-          referrerPhone: od.referrer?.phone || null,
-          referralPhone: od.referral?.phone || null,
+          referrerPhone: od.referrer?.phoneNumber || null,
+          referralPhone: od.referral?.phoneNumber || null,
         };
       });
 
@@ -555,7 +555,7 @@ console.log('feeIds', feeIds);
       const updateData: any = { ...od };
 
       if (verificationType === 'referrer' || verificationType === 'both') {
-        const referrerPhone = normalizePhone(od.referrer?.phone);
+        const referrerPhone = normalizePhone(od.referrer?.phoneNumber);
         
         if (referrerPhone && referrerPhone === parentPhone) {
           updateData.referrer = {
@@ -569,7 +569,7 @@ console.log('feeIds', feeIds);
       }
 
       if (verificationType === 'referral' || verificationType === 'both') {
-        const referralPhone = normalizePhone(od.referral?.phone);
+        const referralPhone = normalizePhone(od.referral?.phoneNumber);
         
         if (referralPhone && referralPhone === parentPhone) {
           updateData.referral = {
@@ -9200,7 +9200,7 @@ if (
         existingLeads = existingLeads.filter((lead) => {
           return lead._id != requestBody.enquiry_id;
         });
-        message = 'Duplicate Enquiry Found, Continue With Existing';
+        message = 'Duplicate Enquiry Found, Continue With New';
         enquiryNo = existingLeads
         .map((lead) => ({
           id: lead.enquiry_number,
@@ -9291,7 +9291,7 @@ if (
         }))
         .reverse();
       return {
-        message: 'Duplicate Enquiry Found, Continue With Existing',
+        message: 'Duplicate Enquiry Found, Continue With New',
         data: enquiryNo,
       };
     }

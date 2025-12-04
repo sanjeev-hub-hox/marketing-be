@@ -27,6 +27,40 @@ export class ReferralReminderService {
     private readonly enquiryRepository: EnquiryRepository,
   ) {}
 
+  async createReminderRecords(enquiryData: any): Promise<void> {
+    const config = referralReminderConfig;
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + config.duration);
+    
+    const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
+    const recipients = this.getAllRecipients(enquiryData, baseUrl);
+
+    // Create database records for tracking
+    for (const recipient of recipients) {
+      await this.reminderRepository.create({
+        enquiry_id: enquiryData._id,
+        enquiry_number: enquiryData.enquiry_number,
+        recipient_type: recipient.type,
+        recipient_email: recipient.email,
+        recipient_phone: recipient.phone,
+        recipient_name: recipient.name,
+        reminder_count: 0,
+        max_reminders: config.frequency * config.duration,
+        total_days: config.duration,
+        status: ReminderStatus.PENDING,
+        start_date: startDate,
+        end_date: endDate,
+        next_scheduled_at: this.calculateNextSchedule(startDate, config.frequency),
+        referral_details: {
+          referrer_name: recipient.referrerName,
+          referred_name: recipient.referredName,
+          verification_url: recipient.verificationUrl,
+        },
+      });
+    }
+  }
+
   /**
    * Send immediate reminders for both parent and referrer
    * No database storage - direct notification sending

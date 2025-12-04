@@ -10,7 +10,7 @@ export class KafkaProducerService implements OnModuleInit {
   constructor(private configService: ConfigService) {
     this.kafka = new Kafka({
       clientId: 'marketing-service',
-      brokers: [this.configService.get('KAFKA_BROKERS') || 'localhost:9092'],
+      brokers: [this.configService.get('KAFKA_HOST_URL') || 'localhost:9092'],
     });
     this.producer = this.kafka.producer();
   }
