@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef  } from '@nestjs/common';
 import { ReferralReminderService } from './referralReminder.service';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { EnquiryModule } from '../enquiry/enquiry.module';
 
 @Module({
-  imports: [EnquiryModule],
+  imports: [forwardRef(() => EnquiryModule)],
   providers: [
     ReferralReminderService,
     KafkaProducerService,

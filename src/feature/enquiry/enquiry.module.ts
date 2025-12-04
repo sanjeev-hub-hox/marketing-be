@@ -58,7 +58,7 @@ import { ReferralReminderModule } from '../referralReminder/referralReminder.mod
     AuthModule,
     ParentLoginLogModule,
     JobShadulerModule,
-    ReferralReminderModule
+    forwardRef(() => ReferralReminderModule)
   ],
   providers: [
     EnquiryService,

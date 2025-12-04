@@ -105,6 +105,6 @@ export const excludedRoutes = [
   },
   {
     path: 'referral-view/:id',
-    method: RequestMethod.PATCH,
+    method: RequestMethod.GET,
   },
 ];

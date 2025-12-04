@@ -29,8 +29,8 @@ export class NotificationService {
     platform: any
   ) {
     // Use the correct base URL from your cURL example
-    const BaseUrl = process.env.NOTIFICATION_BASE_URL || 
-      'https://notifications-backend-869610231867.asia-south1.run.app';
+    const BaseUrl = process.env.NOTIFICATION_URL || 
+      'https://notifications-backend-1032326496689.asia-south1.run.app';
 
     // Validate required fields
     if (!notificationPayload.slug) {
