@@ -1,8 +1,0 @@
-export const GET_FORMS = '/form-builder/form-metadata/list'
-export const GET_STAGES = 'marketing/enquiry-stage/mapping/list'
-export const CREATE_ENQUIRY_TYPE = 'marketing/enquiry-type/metadata'
-export const DELETE_ENQUIRY_TYPE = 'marketing/enquiry-type/delete'
-export const VALIDATE_SLUG = 'marketing/enquiry-type/checkSlugName'
-export const UPDATE_ENQUIRY_TYPE = 'marketing/enquiry-type/update'
-export const GET_ENQUIRY_TYPE = 'marketing/enquiry-type'
-export const GET_ENQUIRY_TYPE_FORM = 'marketing/enquiry-type/dropdown-list'
