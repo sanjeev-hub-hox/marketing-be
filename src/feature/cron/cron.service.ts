@@ -86,90 +86,128 @@ export class CronService {
   /**
    * Calculate next scheduled date based on frequency
    */
-  private calculateNextSchedule(startDate: Date, frequency: number): Date {
-    const nextDate = new Date(startDate);
-    const hoursInterval = 24 / frequency;
-    nextDate.setHours(nextDate.getHours() + hoursInterval);
+  private calculateNextSchedule(currentDate: Date, frequency: number): Date {
+    const nextDate = new Date(currentDate);
+    const intervalMinutes = Math.floor((24 * 60) / frequency);
+    nextDate.setMinutes(nextDate.getMinutes() + intervalMinutes);
     return nextDate;
   }
 
-  @Cron('0 */4 * * *') // Every 4 hours
+  @Cron(referralReminderConfig.cronSchedule)
   async processReferralReminders(): Promise<void> {
     if (!referralReminderConfig.enabled) {
       console.log('[CRON] Referral reminder system is disabled');
       return;
     }
 
-    console.log('[CRON] Starting referral reminder job');
+    const now = new Date();
+    console.log(`[CRON] Starting referral reminder job at: ${now.toISOString()}`);
 
     try {
-      const now = new Date();
-      
-      // Query reminders that are due
+      // Query reminders that are:
+      // 1. PENDING status
+      // 2. Due now (next_scheduled_at <= now)
+      // 3. Not yet verified
       const dueReminders = await this.reminderRepository.find({
         status: ReminderStatus.PENDING,
         next_scheduled_at: { $lte: now },
         is_verified: false,
       });
 
-      console.log(`[CRON] Found ${dueReminders.length} due reminders`);
+      console.log(`[CRON] Found ${dueReminders.length} due reminders to process`);
+
+      if (dueReminders.length === 0) {
+        console.log('[CRON] No due reminders found');
+        return;
+      }
 
       for (const reminder of dueReminders) {
         try {
-          // Check if max reminders reached
+          console.log(`[CRON] Processing reminder ${reminder._id} for ${reminder.recipient_email}`);
+
+          // 🔥 FIX #2: Check if max reminders reached BEFORE processing
           if (reminder.reminder_count >= reminder.max_reminders) {
+            console.log(`[CRON] Reminder ${reminder._id} reached max count (${reminder.max_reminders}), marking as completed`);
+            
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
             continue;
           }
 
-          // Send to Kafka for async processing
-          await this.kafkaProducer.sendMessage(
-            referralReminderConfig.kafkaTopic || 'referral-reminders',
-            {
-              reminder_id: reminder._id.toString(),
-              enquiry_id: reminder.enquiry_id.toString(),
-              enquiry_number: reminder.enquiry_number,
-              recipient_type: reminder.recipient_type,
-              recipient_email: reminder.recipient_email,
-              recipient_phone: reminder.recipient_phone,
-              recipient_name: reminder.recipient_name,
-              verification_url: reminder.referral_details.verification_url,
-              reminder_count: reminder.reminder_count,
-            }
+          // 🔥 FIX #3: Check if end date passed
+          if (reminder.end_date && new Date(reminder.end_date) < now) {
+            console.log(`[CRON] Reminder ${reminder._id} end date passed, marking as completed`);
+            
+            await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
+              status: ReminderStatus.COMPLETED,
+            });
+            continue;
+          }
+
+          // Send message to Kafka queue
+          const kafkaMessage = {
+            reminder_id: reminder._id.toString(),
+            enquiry_id: reminder.enquiry_id.toString(),
+            enquiry_number: reminder.enquiry_number,
+            recipient_type: reminder.recipient_type,
+            recipient_email: reminder.recipient_email,
+            recipient_phone: reminder.recipient_phone,
+            recipient_name: reminder.recipient_name,
+            verification_url: reminder.referral_details?.verification_url,
+            reminder_count: reminder.reminder_count,
+            referrer_name: reminder.referral_details?.referrer_name,
+            referred_name: reminder.referral_details?.referred_name,
+          };
+
+          const sent = await this.kafkaProducer.sendMessage(
+            referralReminderConfig.kafkaTopic || 'referral-notifications',
+            kafkaMessage
           );
 
-          // Update reminder record
+          if (!sent) {
+            console.error(`[CRON] Failed to send reminder ${reminder._id} to Kafka`);
+            
+            await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
+              $push: { error_logs: `${now.toISOString()}: Failed to send to Kafka` },
+            });
+            continue;
+          }
+
+          // 🔥 FIX #4: Update reminder record with correct next schedule
+          const newReminderCount = reminder.reminder_count + 1;
+          const nextSchedule = this.calculateNextSchedule(now, referralReminderConfig.frequency);
+
+          console.log(`[CRON] Reminder ${reminder._id} queued. Count: ${newReminderCount}/${reminder.max_reminders}, Next: ${nextSchedule.toISOString()}`);
+
           await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
-            reminder_count: reminder.reminder_count + 1,
+            reminder_count: newReminderCount,
             last_sent_at: now,
-            next_scheduled_at: this.calculateNextSchedule(
-              now, 
-              referralReminderConfig.frequency
-            ),
+            next_scheduled_at: nextSchedule,
             $push: { sent_timestamps: now },
           });
 
-          // Mark as completed if max reached
-          if (reminder.reminder_count + 1 >= reminder.max_reminders) {
+          // Mark as completed if this was the last reminder
+          if (newReminderCount >= reminder.max_reminders) {
+            console.log(`[CRON] Reminder ${reminder._id} completed (sent ${newReminderCount}/${reminder.max_reminders})`);
+            
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
           }
 
-          console.log(`[CRON] Processed reminder for ${reminder.recipient_email}`);
         } catch (error) {
           console.error(`[CRON] Error processing reminder ${reminder._id}:`, error);
+          
           await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
-            $push: { error_logs: error.message },
+            $push: { error_logs: `${now.toISOString()}: ${error.message}` },
           });
         }
       }
 
-      console.log(`[CRON] Referral reminder job completed`);
+      console.log(`[CRON] Referral reminder job completed at: ${new Date().toISOString()}`);
     } catch (error) {
-      console.error(`[CRON] Error in referral reminder job:`, error);
+      console.error(`[CRON] Fatal error in referral reminder job:`, error);
     }
   }
 
