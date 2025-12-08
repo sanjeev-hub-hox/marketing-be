@@ -10,7 +10,7 @@ import {
 import { EmailService } from '../../global/global.email.service';
 import { AxiosService } from '../../global/service';
 import { CreatedByDetailsDto } from '../../middleware/auth/auth.dto';
-import { LoggerService } from '../../utils';
+import { LoggerService, MdmService } from '../../utils';
 import { EnquiryRepository } from '../enquiry/enquiry.repository';
 import { EEnquiryStageStatus, EParentType } from '../enquiry/enquiry.type';
 import { EnquiryHelper } from '../enquiry/enquiryHelper.service';
@@ -45,7 +45,8 @@ export class SchoolVisitService {
     private loggerService: LoggerService,
     private emailService: EmailService,
     private enquiryHelper: EnquiryHelper,
-  ) {}
+    private mdmService: MdmService,
+  ) { }
 
   async updateEnquiryStage(
     enquiryId: string,

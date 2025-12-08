@@ -7459,7 +7459,6 @@ if (
 
   // report export To Csv for admission Enquiry
   async admissionEnquiryReport(jobId = null) {
-    console.log("report jobId--->", jobId);
     const pipeline = [
       {
         $lookup: {
@@ -7803,23 +7802,23 @@ if (
                   },
                   {
                     $cond: [
-                      { $gt: [{ $size: '$$kitSellingLogs' }, 0] },
+                      { $gt: [{ $size: '$$schoolTourLogs' }, 0] },
                       {
                         $dateToString: {
                           format: '%d-%m-%Y',
                           date: {
-                            $arrayElemAt: ['$$kitSellingLogs.created_at', 0],
+                            $arrayElemAt: ['$$schoolTourLogs.created_at', 0],
                           },
                         },
                       },
                       {
                         $cond: [
-                          { $gt: [{ $size: '$$schoolTourLogs' }, 0] },
+                          { $gt: [{ $size: '$$kitSellingLogs' }, 0] },
                           {
                             $dateToString: {
                               format: '%d-%m-%Y',
                               date: {
-                                $arrayElemAt: ['$$schoolTourLogs.created_at', 0],
+                                $arrayElemAt: ['$$kitSellingLogs.created_at', 0],
                               },
                             },
                           },
@@ -8452,10 +8451,8 @@ if (
         $sort: { created_at: -1 },
       },
     ];
-    console.log("report jobId 1", jobId);
 
     const enquiryDetails = await this.enquiryRepository.aggregate(pipeline);
-    console.log("report jobId 2", jobId);
 
     if (!enquiryDetails.length) {
       throw new HttpException(
@@ -8463,7 +8460,6 @@ if (
         HttpStatus.NOT_FOUND,
       );
     }
-    console.log("report jobId 3", jobId);
 
     const schoolIds = [];
     const enquiries = enquiryDetails.map((e: any) => {
@@ -8577,7 +8573,6 @@ if (
         'Created At': e?.createdAtFormatted ?? 'NA',
       };
     });
-    console.log("report jobId 4", jobId);
 
     const schoolDetails = await this.mdmService.postDataToAPI(
       MDM_API_URLS.SEARCH_SCHOOL,
@@ -8585,12 +8580,10 @@ if (
         operator: `school_id In (${schoolIds.toString()})`,
       },
     );
-    console.log("report jobId 5", jobId);
 
     const schoolDataIds = schoolDetails.data.schools.map(
       (school) => school.school_id,
     );
-    console.log("report jobId 6", jobId);
 
     const updatedRecords = [];
     if (schoolDetails?.data?.schools?.length) {
@@ -8627,7 +8620,6 @@ if (
         }),
       );
     }
-    console.log("report jobId 7", jobId);
 
     const fields = [
       'Business Vertical',
@@ -8693,12 +8685,10 @@ if (
       'Re-open Reason',
       'Created At',
     ];
-    console.log("report jobId 8", jobId);
 
     const date = new Date().toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
     });
-    console.log("report jobId 9", jobId);
 
     const [month, day, year] = date.split(',')[0].split('/');
     const filename = `Enquiry-to-Admission-${day}-${month}-${year}-${date
@@ -8707,14 +8697,12 @@ if (
       .split(' ')[0]
       .split(':')
       .join('')}`;
-    console.log("report jobId 10", jobId);
 
     const generatedCSV: any = await this.csvService.generateCsv(
       updatedRecords,
       fields,
       filename,
     );
-    console.log("report jobId 11", jobId);
 
     const file: Express.Multer.File =
       await this.fileService.createFileFromBuffer(
@@ -8722,17 +8710,14 @@ if (
         filename,
         'text/csv',
       );
-    console.log("report jobId 12", jobId);
     
     await this.setFileUploadStorage();
     const uploadedFileName = await this.storageService.uploadFile(
       file,
       filename,
     );
-    console.log("report jobId 13", jobId);
 
     const bucketName = this.configService.get<string>('BUCKET_NAME');
-    console.log("report jobId 14", jobId);
 
     if (!uploadedFileName) {
       throw new HttpException(
@@ -8740,14 +8725,12 @@ if (
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    console.log("report jobId 15", jobId);
 
     const signedUrl = await this.storageService.getSignedUrl(
       bucketName,
       uploadedFileName,
       false,
     );
-    console.log("update report jobId--->", jobId);
 
     if(jobId){
       await this.jobShadulerService.updateJob(jobId,{

@@ -31,6 +31,34 @@ export class AuthorizationMiddleware implements NestMiddleware {
     this.redisInstance = redisInstance;
   }
 
+  // Helper function to standardize user name construction (First + Last name only)
+  private constructUserName(user: any, userInfo: any): string | null {
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+
+    // Extract first and last names from available sources
+    if (userInfo) {
+      // If userInfo.name exists, try to split it
+      if (userInfo.name) {
+        const nameParts = userInfo.name.trim().split(/\s+/);
+        firstName = nameParts[0] || null;
+        lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : null;
+      }
+      // Override with explicit fields if available
+      firstName = userInfo.first_name?.trim() || firstName;
+      lastName = userInfo.last_name?.trim() || lastName;
+    }
+
+    if (user) {
+      firstName = user.first_name?.trim() || firstName;
+      lastName = user.last_name?.trim() || lastName;
+    }
+
+    // Construct name from first and last only
+    const parts = [firstName, lastName].filter(Boolean);
+    return parts.length > 0 ? parts.join(' ') : null;
+  }
+
   private isAppRequest(req: Request): boolean {
     let isAppRequest = false;
     const queryString = req.url.split('?')[1];
@@ -99,14 +127,13 @@ export class AuthorizationMiddleware implements NestMiddleware {
         );
         if (userInfo) {
           userId = userInfo?.id ?? null;
-          userName = userInfo?.name ?? null;
           userEmail = userInfo?.email ?? null;
         } else if (user) {
           userId = user?.id ?? null;
-          userName =
-            ((user?.first_name ?? '') || (user?.last_name ?? '')) ?? null;
           userEmail = user?.email ?? null;
         }
+        // Use the helper function to construct userName
+        userName = this.constructUserName(user, userInfo);
         userPermissions.push(...permissions);
       } else {
         const permissionsApiResponse = await this.mdmService.postDataToAPI(
@@ -131,12 +158,9 @@ export class AuthorizationMiddleware implements NestMiddleware {
 
         if (user) {
           userId = user?.id ?? null;
-          userName =
-            ((user?.first_name ?? '') || (user?.last_name ?? '')) ?? null;
           userEmail = user?.email ?? null;
         } else if (userInfo) {
           userId = userInfo?.id ?? null;
-          userName = userInfo?.name ?? null;
           userEmail = userInfo?.email ?? null;
         } else {
           userInfo = {
@@ -145,9 +169,10 @@ export class AuthorizationMiddleware implements NestMiddleware {
             email: loggedInUserEmail ?? null,
           };
           userId = req.body?.id ?? req.body?.userInfo.id ?? null;
-          userName = req.body?.name ?? req.body?.userInfo.name ?? null;
           userEmail = loggedInUserEmail ?? null;
         }
+        // Use the helper function to construct userName
+        userName = this.constructUserName(user, userInfo);
         userPermissions.push(...permissions);
         if (authType === EAuthType.REDIS) {
           this.loggerService.log('Setting data in redis');
@@ -162,7 +187,7 @@ export class AuthorizationMiddleware implements NestMiddleware {
               },
             },
             3600,
-          ); // Expires in 1 hour
+          );
         } else {
           this.loggerService.log('Setting data in session');
           req.session[token] = {

@@ -1,7 +1,6 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module, forwardRef  } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferralReminderService } from './referralReminder.service';
-import { ReferralReminderController } from './referralReminder.controller';
 import { ReminderRepository } from './referralReminder.repository';
 import { ReferralReminderSchema } from './referralReminder.schema';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
@@ -16,7 +15,6 @@ import { GlobalModule } from '../../global/global.module';
     forwardRef(() => EnquiryModule),
     GlobalModule,
   ],
-  controllers: [ReferralReminderController],
   providers: [
     ReferralReminderService,
     ReminderRepository,

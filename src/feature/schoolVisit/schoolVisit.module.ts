@@ -8,6 +8,7 @@ import { SchoolVisitController } from './schoolVisit.controller';
 import { SchoolVisitRepository } from './schoolVisit.repository';
 import { SchoolVisitSchema } from './schoolVisit.schema';
 import { SchoolVisitService } from './schoolVisit.service';
+import { MdmService } from 'src/utils';
 
 @Module({
   imports: [
@@ -18,8 +19,8 @@ import { SchoolVisitService } from './schoolVisit.service';
     EnquiryModule,
     SlotModule,
   ],
-  providers: [SchoolVisitService, SchoolVisitRepository],
+  providers: [SchoolVisitService, SchoolVisitRepository, MdmService],
   controllers: [SchoolVisitController],
   exports: [SchoolVisitService, SchoolVisitRepository],
 })
-export class SchoolVisitModule {}
+export class SchoolVisitModule { }

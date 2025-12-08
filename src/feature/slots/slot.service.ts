@@ -10,6 +10,7 @@ import {
 import { TSlotMasterDocument } from './schema';
 import { daysOfWeek } from './slot.constant';
 import { ESlotType, EUnavailabilityOf } from './slot.type';
+import { MdmService } from 'src/utils';
 
 @Injectable()
 export class SlotService {
@@ -17,83 +18,154 @@ export class SlotService {
     private slotMasterRepository: SlotMasterRepository,
     private bookedSlotRepository: BookedSlotRepository,
     private unavailableSlotRepository: UnavailableSlotsRepository,
-  ) {}
-
+    private MdmService: MdmService,
+  ) { }
   async getAvailableSlots(
-    date: string,
+    date: string, // "DD-MM-YYYY"
     schoolId: number,
     slotFor: ESlotType,
   ): Promise<TSlotMasterDocument[]> {
-    const [monthDate, month, year] = date.split('-');
-    const day = daysOfWeek[new Date(`${month}-${monthDate}-${year}`).getDay()];
-    const masterSlotsOfDay = await this.slotMasterRepository.getMany({
+    // parse date and day
+    const [d, m, y] = date.split('-');
+    const dateStr = `${d}-${m}-${y}`;
+    const dayName = daysOfWeek[new Date(`${m}-${d}-${y}`).getDay()];
+
+    // 1) UI slots for requested school
+    const masterSlots = await this.slotMasterRepository.getMany({
       slot_for: slotFor,
-      day: day,
+      day: dayName,
       school_id: schoolId,
       is_active: true,
       is_deleted: false,
     });
+    if (!masterSlots || !masterSlots.length) return [];
 
-    const masterSlotIds = masterSlotsOfDay.map((slot) => slot._id);
+    // map of master slot ids (string form) for quick use
+    const masterSlotIds = masterSlots.map((s) => s._id);
 
+    // prepare UI slots (we will filter unavailable ones out)
+    let uiSlots = masterSlots.map((s) => ({
+      _id: s._id,
+      slot_for: s.slot_for,
+      slot: s.slot,
+      day: s.day,
+      school_id: s.school_id,
+      bookedCount: 0,
+    }));
 
-    let updatedMasterSlotIds = masterSlotIds;
+    // 2) equivalent school ids (MDM) — fallback to current school
+    let equivalentSchoolIds: number[] = [];
+    try {
+      const resp = await this.MdmService.fetchDataFromAPI(`/api/ac-schools/${schoolId}`);
+      const parentId = resp?.data?.attributes?.school_parent_id;
+      if (parentId) {
+        const listResp = await this.MdmService.fetchDataFromAPI('/api/ac-schools', {
+          'filters[school_parent_id][$eq]': parentId,
+        });
+        equivalentSchoolIds = (listResp?.data || []).map((x: any) => Number(x.id));
+      }
+    } catch (err) {
+      // ignore; fallback below
+    }
+    if (!equivalentSchoolIds.length) equivalentSchoolIds = [schoolId];
 
-
-    const unavailableSlotPipeline: PipelineStage[] = [
-      {
-        $match: {
-          $expr: {
-            $eq: [
-              {
-                $dateToString: { format: '%d-%m-%Y', date: '$date' },
-              },
-              `${monthDate}-${month}-${year}`,
-            ],
+    // 3) get unavailable slots for requested school's masterSlotIds on the date (PRINCIPAL unavailability)
+    let unavailableSlotIdStrs: string[] = [];
+    try {
+      const unavailPipeline: PipelineStage[] = [
+        {
+          $match: {
+            slot_id: { $in: masterSlotIds },
+            unavailability_of: EUnavailabilityOf.PRINCIPAL,
+            $expr: {
+              $eq: [{ $dateToString: { format: '%d-%m-%Y', date: '$date' } }, dateStr],
+            },
           },
-          slot_for: slotFor,
-          slot_id: { $in: updatedMasterSlotIds },
-          unavailability_of: EUnavailabilityOf.PRINCIPAL,
         },
-      },
-    ];
-
-    const unavailableSlots = await this.unavailableSlotRepository.aggregate(
-      unavailableSlotPipeline,
-    );
-
-    if (unavailableSlots.length) {
-      const unavailableSlotIds = unavailableSlots.map((slot) =>
-        slot.slot_id.toString(),
-      );
-      updatedMasterSlotIds = updatedMasterSlotIds.filter((slot) => {
-        return !unavailableSlotIds.includes(slot._id.toString());
-      });
+        { $project: { slot_id: 1 } },
+      ];
+      const unavails = await this.unavailableSlotRepository.aggregate(unavailPipeline);
+      unavailableSlotIdStrs = (unavails || []).map((u: any) => (u.slot_id ? u.slot_id.toString() : '')).filter(Boolean);
+    } catch (err) {
+      console.log('unavailableSlot aggregation failed', err);
+      unavailableSlotIdStrs = [];
     }
 
-    const filteredAvailableSlots = [];
-    masterSlotsOfDay.forEach((slot) => {
-      if (updatedMasterSlotIds.includes(slot._id)) {
-        filteredAvailableSlots.push({
-          _id: slot._id,
-          slot_for: slot.slot_for,
-          slot: slot.slot,
-          day: slot.day,
-          school_id: slot.school_id,
-        });
-      }
-    });
+    // remove unavailable slots from UI list
+    if (unavailableSlotIdStrs.length) {
+      const unavailableSet = new Set(unavailableSlotIdStrs);
+      uiSlots = uiSlots.filter((s) => !unavailableSet.has(s._id.toString()));
+      if (!uiSlots.length) return [];
+    }
 
+    // 4) aggregate bookedSlot counts — join slotMaster (sm), filter sm.school_id in equivalentSchoolIds,
+    try {
+      const eqNums = equivalentSchoolIds.map((n) => Number(n));
+      const slotForLower = String(slotFor).toLowerCase();
+
+      const excludedSmObjectIds = unavailableSlotIdStrs
+        .map((s) => (Types.ObjectId.isValid(s) ? new Types.ObjectId(s) : null))
+        .filter(Boolean) as any[];
+
+      const pipeline: PipelineStage[] = [
+        // date & slot_for filter
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $eq: [{ $dateToString: { format: '%d-%m-%Y', date: '$date' } }, dateStr] },
+                { $eq: [{ $toLower: '$slot_for' }, slotForLower] },
+              ],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: 'slotMaster',
+            localField: 'slot_id',
+            foreignField: '_id',
+            as: 'sm',
+          },
+        },
+        { $unwind: { path: '$sm', preserveNullAndEmptyArrays: false } },
+        {
+          $match: {
+            'sm.school_id': { $in: eqNums },
+            'sm.day': dayName,
+          },
+        },
+        ...(excludedSmObjectIds.length
+          ? [{ $match: { 'sm._id': { $nin: excludedSmObjectIds } } }]
+          : []),
+        {
+          $group: {
+            _id: '$sm.slot',
+            count: { $sum: 1 },
+          },
+        },
+      ];
+
+      const countsByTime = await this.bookedSlotRepository.aggregate(pipeline);
+      const mapByTime: Record<string, number> = {};
+      (countsByTime || []).forEach((c: any) => {
+        mapByTime[String(c._id)] = c.count ?? 0;
+      });
+
+      // attach counts to uiSlots by slot time
+      uiSlots.forEach((s) => {
+        s.bookedCount = mapByTime[s.slot] ?? 0;
+      });
+    } catch (err) {
+      console.log('Booked aggregation failed', err);
+      // leave bookedCount as 0
+    }
+
+    // 5) same-day filtering (unchanged)
     const localTime = moment().tz('Asia/Kolkata').format('hh:mm A');
     const currentDate = moment().tz('Asia/Kolkata').format('DD-MM-YYYY');
-    if (date !== currentDate) {
-      return this.sortSlots(filteredAvailableSlots);
-    }
-    const futureSlots = this.getFutureTimeSlots(
-      localTime,
-      filteredAvailableSlots,
-    );
-    return this.sortSlots(futureSlots);
+    if (date !== currentDate) return this.sortSlots(uiSlots);
+    const future = this.getFutureTimeSlots(localTime, uiSlots);
+    return this.sortSlots(future);
   }
 
   async bookSlot(
@@ -406,14 +478,14 @@ export class SlotService {
       let [hours, minutes] = slot.slot.split(' ')[0].split(':');
       if (+hours === 12 && isNoonSlot) hours = 0;
       const timestamp = isNoonSlot ? (+hours * 60 * 60) + (+minutes * 60) + (12 * 60 * 60) : (+hours * 60 * 60) + (+minutes * 60)
-      slotsMap.push({ timestamp, ...slot});
+      slotsMap.push({ timestamp, ...slot });
     });
 
     const sortedSlots = slotsMap.sort((a, b) => a.timestamp - b.timestamp)
       .map((sortedSlot) => {
-      delete sortedSlot.timestamp;
-      return sortedSlot;
-    });
+        delete sortedSlot.timestamp;
+        return sortedSlot;
+      });
     return sortedSlots;
   }
 }
