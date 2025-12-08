@@ -342,7 +342,7 @@ export class EnquiryStageUpdateService {
               this.loggerService.log(`Sending initial referral notifications...`);
               
               try {
-                await this.referralReminderService.sendInitialNotification(
+                await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
                   enquiryData,
                   token,
                   platform
@@ -361,7 +361,7 @@ export class EnquiryStageUpdateService {
               this.loggerService.log(`Creating reminder records for future reminders...`);
               
               try {
-                await this.referralReminderService.createReminderRecords(enquiryData);
+                await this.referralReminderService.sendInitialNotificationAndScheduleReminders(enquiryData, token, platform);
                 this.loggerService.log(`Reminder records created successfully`);
               } catch (error) {
                 this.loggerService.error(

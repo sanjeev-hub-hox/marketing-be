@@ -6,6 +6,7 @@ import { ReferralReminderSchema } from './referralReminder.schema';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { EnquiryModule } from '../enquiry/enquiry.module';
 import { GlobalModule } from '../../global/global.module';
+import { VerificationTrackerService } from './verificationTracker.service';
 
 @Module({
   imports: [
@@ -20,6 +21,6 @@ import { GlobalModule } from '../../global/global.module';
     ReminderRepository,
     KafkaProducerService,
   ],
-  exports: [ReferralReminderService, ReminderRepository],
+  exports: [ReferralReminderService, ReminderRepository, VerificationTrackerService],
 })
 export class ReferralReminderModule {}
