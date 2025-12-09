@@ -20,6 +20,7 @@ import { VerificationTrackerService } from './verificationTracker.service';
     ReferralReminderService,
     ReminderRepository,
     KafkaProducerService,
+    VerificationTrackerService
   ],
   exports: [ReferralReminderService, ReminderRepository, VerificationTrackerService],
 })
