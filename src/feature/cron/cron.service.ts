@@ -95,14 +95,18 @@ export class CronService {
     return nextDate;
   }
 
-  @Cron('0 */4 * * *') // Every 4 hours
+  /**
+   * FIXED: Referral Reminder Cron - Runs every 10 minutes
+   * Changed from 4 hours to 10 minutes for testing
+   */
+  @Cron('*/10 * * * *') // Every 10 minutes
   async processReferralReminders(): Promise<void> {
     if (!referralReminderConfig.enabled) {
       console.log('[CRON] Referral reminder system is disabled');
       return;
     }
 
-    console.log('[CRON] Starting referral reminder job');
+    console.log('[CRON] Starting referral reminder job at', new Date().toISOString());
 
     try {
       const now = new Date();
@@ -116,14 +120,17 @@ export class CronService {
 
       console.log(`[CRON] Found ${dueReminders.length} due reminders`);
 
-      // Get token for notification service (you may need to adjust this based on your auth setup)
-      const token = ''; // Add logic to get token if needed
+      // Get token for notification service
+      const token = ''; // Token is handled in notification service
       const platform = 'web';
 
       for (const reminder of dueReminders) {
         try {
+          console.log(`[CRON] Processing reminder for ${reminder.recipient_email}`);
+
           // Check if max reminders reached
           if (reminder.reminder_count >= reminder.max_reminders) {
+            console.log(`[CRON] Max reminders reached for ${reminder.recipient_email}`);
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
@@ -141,9 +148,9 @@ export class CronService {
               param: {
                 recipientType: reminder.recipient_type === 'parent' ? 'Parent' : 'Referrer',
                 recipientName: reminder.recipient_name,
-                referrerName: reminder.referral_details.referrer_name || reminder.recipient_name,
-                verificationUrl: reminder.referral_details.verification_url,
-                studentName: reminder.referral_details.referred_name || '',
+                referrerName: reminder.referral_details?.referrer_name || reminder.recipient_name,
+                verificationUrl: reminder.referral_details?.verification_url || '',
+                studentName: reminder.referral_details?.referred_name || '',
                 enquiryId: reminder.enquiry_number,
                 reminderCount: reminder.reminder_count + 1,
               },
@@ -152,8 +159,10 @@ export class CronService {
             platform
           );
 
+          console.log(`[CRON] Notification result for ${reminder.recipient_email}:`, notificationResult);
+
           // Update reminder record
-          await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
+          const updateData: any = {
             reminder_count: reminder.reminder_count + 1,
             last_sent_at: now,
             next_scheduled_at: this.calculateNextSchedule(
@@ -162,18 +171,25 @@ export class CronService {
             ),
             $push: { 
               sent_timestamps: now,
-              ...(notificationResult ? {} : { error_logs: 'Notification service returned false' })
             },
-          });
+          };
+
+          // Add error log if notification failed
+          if (!notificationResult) {
+            updateData.$push.error_logs = 'Notification service returned false';
+          }
+
+          await this.reminderRepository.updateById(reminder._id as Types.ObjectId, updateData);
 
           // Mark as completed if max reached
           if (reminder.reminder_count + 1 >= reminder.max_reminders) {
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
+            console.log(`[CRON] Marked reminder as completed for ${reminder.recipient_email}`);
           }
 
-          console.log(`[CRON] Processed reminder for ${reminder.recipient_email} (SMS: ${reminder.recipient_phone})`);
+          console.log(`[CRON] Successfully processed reminder for ${reminder.recipient_email} (SMS: ${reminder.recipient_phone})`);
         } catch (error) {
           console.error(`[CRON] Error processing reminder ${reminder._id}:`, error);
           await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
@@ -182,7 +198,7 @@ export class CronService {
         }
       }
 
-      console.log(`[CRON] Referral reminder job completed`);
+      console.log(`[CRON] Referral reminder job completed at`, new Date().toISOString());
     } catch (error) {
       console.error(`[CRON] Error in referral reminder job:`, error);
     }
