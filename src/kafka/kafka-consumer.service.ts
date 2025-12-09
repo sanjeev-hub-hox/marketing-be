@@ -13,6 +13,8 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
   private admin: Admin;
   private isConnected = false;
   private processedMessages: Set<string> = new Set();
+  private messageQueue: ReminderMessage[] = [];
+  private pollingInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private configService: ConfigService,
@@ -103,10 +105,69 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
       this.isConnected = true;
       console.log('[KAFKA CONSUMER] ✅ Consumer is running and listening for messages');
+      this.startMessagePolling();
     } catch (error) {
       console.error('[KAFKA CONSUMER] ❌ Failed to initialize:', error.message);
     }
+
   }
+
+  private startMessagePolling(): void {
+    console.log('[KAFKA CONSUMER] Starting message polling every 30 seconds');
+    
+    this.pollingInterval = setInterval(() => {
+      this.processQueuedMessages();
+    }, 30000); // Poll every 30 seconds
+  }
+
+  private async processQueuedMessages(): Promise<void> {
+    if (this.messageQueue.length === 0) {
+      return;
+    }
+
+    console.log(`[KAFKA CONSUMER] 🔄 Processing ${this.messageQueue.length} queued messages`);
+    
+    const now = new Date();
+    const messagesToProcess = [];
+    const messagesToKeep = [];
+
+    // Separate messages that are ready vs still in future
+    for (const message of this.messageQueue) {
+      const scheduledDate = new Date(message.scheduledFor);
+      
+      if (scheduledDate <= now) {
+        messagesToProcess.push(message);
+      } else {
+        messagesToKeep.push(message);
+      }
+    }
+
+    // Update queue
+    this.messageQueue = messagesToKeep;
+
+    // Process ready messages
+    for (const message of messagesToProcess) {
+      await this.processReminderMessage(message);
+    }
+    
+    if (messagesToProcess.length > 0) {
+      console.log(`[KAFKA CONSUMER] ✅ Processed ${messagesToProcess.length} messages. ${this.messageQueue.length} still in queue`);
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      console.log('[KAFKA CONSUMER] Stopped message polling');
+    }
+    
+    if (this.isConnected) {
+      await this.consumer.disconnect();
+      console.log('[KAFKA CONSUMER] Disconnected');
+    }
+  }
+
+  
 
   async ensureTopicsExist(topics: string[]): Promise<void> {
     try {
@@ -140,20 +201,13 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
   async processReminderMessage(data: ReminderMessage): Promise<void> {
     try {
+      // Deduplication check
       if (this.processedMessages.has(data.messageId)) {
         console.log(`[KAFKA CONSUMER] ⏭️ Message ${data.messageId} already processed, skipping`);
         return;
       }
 
-      const scheduledDate = new Date(data.scheduledFor);
-      const now = new Date();
-      
-      if (scheduledDate > now) {
-        const minutesUntil = Math.round((scheduledDate.getTime() - now.getTime()) / 60000);
-        console.log(`[KAFKA CONSUMER] ⏰ Message ${data.messageId} scheduled for ${scheduledDate.toISOString()} (in ${minutesUntil} minutes)`);
-        return;
-      }
-
+      // Check if already verified
       if (this.verificationTracker.isVerified(data.enquiryId, data.recipientType)) {
         console.log(`[KAFKA CONSUMER] ✅ Enquiry ${data.enquiryId} already verified by ${data.recipientType}, skipping`);
         this.processedMessages.add(data.messageId);
@@ -162,6 +216,7 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
       console.log(`[KAFKA CONSUMER] 📧 Sending reminder ${data.reminderCount}/${data.maxReminders} to ${data.recipientEmail}`);
 
+      // Send notification
       const result = await this.notificationService.sendNotification(
         {
           slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
@@ -186,7 +241,7 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
       if (result) {
         this.processedMessages.add(data.messageId);
-        console.log(`[KAFKA CONSUMER] ✅ Successfully sent reminder to ${data.recipientEmail}`);
+        console.log(`[KAFKA CONSUMER] ✅ Successfully sent reminder to ${data.recipientEmail} (Email + SMS)`);
       }
     } catch (error) {
       console.error(`[KAFKA CONSUMER] ❌ Error processing reminder:`, error.message);
@@ -204,12 +259,5 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
   isConsumerConnected(): boolean {
     return this.isConnected;
-  }
-
-  async onModuleDestroy() {
-    if (this.isConnected) {
-      await this.consumer.disconnect();
-      console.log('[KAFKA CONSUMER] Disconnected');
-    }
   }
 }
