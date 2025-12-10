@@ -111,4 +111,8 @@ export const excludedRoutes = [
     path: 'enquiry/:id/move-to-next-stage',
     method: RequestMethod.PATCH,
   },
+  {
+    path: 'enquiry/getEnrollmentAndParentNumber',
+    method: RequestMethod.GET,
+  },
 ];

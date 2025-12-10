@@ -248,19 +248,19 @@ export class EnquiryController {
     }
   }
 
-  @Get('getEnquiryidAndParentNumber')
-  async getEnquiryidAndParentNumber(
+  @Get('getEnrollmentAndParentNumber')
+  async getEnrollmentAndParentNumber(
     @Query('search') search: string,
     @Res() res: Response,
   ) {
     try {
       const data =
-        await this.enquiryService.getEnquiryidAndParentNumber(search);
+        await this.enquiryService.getEnrollmentAndParentNumber(search);
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
         data,
-        'Enquiry ID and Parent Number Fetched',
+        'Enrollment Number and Parent Number Fetched',
       );
     } catch (error) {
       return this.responseService.errorResponse(
@@ -2144,7 +2144,7 @@ export class EnquiryController {
   @Post('handleReopn')
   async handleReopn(
     @Res() res: Response,
-    @Body() reqBody:any
+    @Body() reqBody: any
   ) {
     try {
 
@@ -2207,5 +2207,43 @@ export class EnquiryController {
       throw err;
     }
   }
+  @ApiOkResponse({
+    status: HttpStatus.OK,
+    description: 'Success response',
+  })
+  @ApiBadRequestResponse({
+    status: HttpStatus.OK,
+    description: 'Invalid data validation error response',
+    type: RequestValidationError,
+  })
+  @Get('/ay/source-wise-conversion-report')
+  async getReportForSourceConversion(
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    const cacheKey = `source-wise-inquiry-status-report`;
+    const cachedData = await this.redisInstance?.getData(cacheKey);
 
+    if (cachedData) {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        cachedData,
+        'Enquiry details report found from redis',
+      );
+    }
+    const finalRows = await this.enquiryService.sourceWiseInquiryStatusReport_BA();
+    const reportFile = await this.enquiryService.generateAndUploadSourceWiseInquiryStatusCsv(finalRows);
+    await this.redisInstance?.setData(cacheKey, reportFile, 720);
+    try {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        reportFile,
+        'Source Wise Conversioneport',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
 }

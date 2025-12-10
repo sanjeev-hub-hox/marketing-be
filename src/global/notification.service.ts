@@ -122,4 +122,86 @@ export class NotificationService {
       return false;
     }
   }
+
+  /**
+   * Send SMS using direct SMS gateway
+   * Fallback method for when notification service is unavailable
+   */
+  async sendDirectSMS(phone: string, message: string): Promise<boolean> {
+    try {
+      const smsUrl = process.env.SMS_URL;
+      const smsApiKey = process.env.SMS_API_KEY;
+
+      if (!smsUrl || !smsApiKey) {
+        this.logger.error('❌ SMS gateway credentials not configured');
+        this.logger.error('Please set SMS_URL and SMS_API_KEY in your .env file');
+        return false;
+      }
+
+      // Ensure phone number is in correct format (last 10 digits)
+      const formattedPhone = phone.toString().slice(-10);
+
+      const url = `${smsUrl}?APIKey=${smsApiKey}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${formattedPhone}&text=${encodeURIComponent(message)}&route=49`;
+
+      this.logger.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
+      this.logger.log(`[SMS] Message: ${message.substring(0, 100)}...`);
+
+      const response = await axios.get(url, { timeout: 10000 });
+
+      this.logger.log(`[SMS] Response Status: ${response.status}`);
+      this.logger.log(`[SMS] Response Data: ${JSON.stringify(response.data)}`);
+
+      // Check for common error codes
+      if (response.data?.ErrorCode) {
+        const errorCode = response.data.ErrorCode;
+        const errorMessage = response.data.ErrorMessage;
+        
+        this.logger.error(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
+        this.logger.error(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
+        
+        // Provide specific error guidance
+        switch (errorCode) {
+          case '11':
+            this.logger.error('[SMS] 🔒 IP ADDRESS RESTRICTION');
+            this.logger.error('[SMS] Solution: Contact your SMS gateway provider to whitelist your server IP');
+            this.logger.error(`[SMS] Your server IP might be visible in the gateway logs or run: curl ifconfig.me`);
+            break;
+          case '12':
+            this.logger.error('[SMS] Invalid API Key');
+            break;
+          case '13':
+            this.logger.error('[SMS] Invalid Phone Number');
+            break;
+          default:
+            this.logger.error(`[SMS] Unknown error code: ${errorCode}`);
+        }
+        
+        return false;
+      }
+
+      // Success case
+      if (response.data?.JobId || response.status === 200) {
+        this.logger.log(`[SMS] ✅ SMS sent successfully. JobId: ${response.data?.JobId || 'N/A'}`);
+        return true;
+      }
+
+      this.logger.warn(`[SMS] ⚠️ Unexpected response format: ${JSON.stringify(response.data)}`);
+      return false;
+
+    } catch (error) {
+      this.logger.error(`[SMS] ❌ Exception while sending SMS: ${error.message}`);
+      
+      if (axios.isAxiosError(error)) {
+        if (error.code === 'ECONNREFUSED') {
+          this.logger.error('[SMS] Cannot connect to SMS gateway - Check SMS_URL');
+        } else if (error.code === 'ETIMEDOUT') {
+          this.logger.error('[SMS] SMS gateway request timeout');
+        } else if (error.response) {
+          this.logger.error(`[SMS] Gateway returned: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+        }
+      }
+      
+      return false;
+    }
+  }
 }

@@ -303,4 +303,11 @@ export const enquiryAuthorizedRoutes = [
     authenticate: true,
     authorize: false,
   },
+  {
+    path: '/enquiry/ay/source-wise-conversion-report',
+    method: RequestMethod.GET,
+    permissions: '*',
+    authenticate: true,
+    authorize: false,
+  },
 ];

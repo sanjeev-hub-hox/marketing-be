@@ -298,6 +298,7 @@ export class EnquiryStageUpdateService {
               this.loggerService.log(`Sending admission notification for enquiry: ${enquiryData.enquiry_number}`);
               
               try {
+                // Send Email
                 await this.notificationService.sendNotification(
                   {
                     slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
@@ -315,6 +316,34 @@ export class EnquiryStageUpdateService {
                   token,
                   platform
                 );
+
+                // Send SMS using template (fallback if notification service fails)
+                if (parentPhone) {
+                  try {
+                    const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
+                    
+                    const smsMessage = buildSmsMessage(SmsTemplateType.ADMISSION_CONFIRMATION, {
+                      parentName: parentName,
+                      studentName: studentName,
+                      schoolName: enquiryData.school_location?.value || 'VIBGYOR',
+                      academicYear: enquiryData.academic_year?.value || '',
+                    });
+
+                    const smsResult = await this.notificationService.sendDirectSMS(
+                      parentPhone.toString(),
+                      smsMessage
+                    );
+                    
+                    if (smsResult) {
+                      this.loggerService.log(`✅ Admission SMS sent successfully to ${parentPhone}`);
+                    } else {
+                      this.loggerService.error(`❌ Failed to send admission SMS to ${parentPhone} - Check SMS gateway IP whitelist`, '');
+                    }
+                  } catch (smsError) {
+                    this.loggerService.error(`❌ Error sending admission SMS: ${smsError.message}`, smsError.stack);
+                  }
+                }
+
                 this.loggerService.log(`Admission notification sent successfully`);
               } catch (error) {
                 this.loggerService.error(`Error sending admission notification: ${error.message}`, error.stack);

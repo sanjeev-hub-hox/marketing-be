@@ -216,32 +216,65 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
       console.log(`[KAFKA CONSUMER] 📧 Sending reminder ${data.reminderCount}/${data.maxReminders} to ${data.recipientEmail}`);
 
-      // Send notification
-      const result = await this.notificationService.sendNotification(
-        {
-          slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
-          employee_ids: [],
-          global_ids: [],
-          mail_to: [data.recipientEmail],
-          sms_to: [data.recipientPhone.toString().slice(-10)],
-          param: {
-            recipientType: data.recipientType === 'parent' ? 'Parent' : 'Referrer',
-            recipientName: data.recipientName,
-            referrerName: data.referrerName || data.recipientName,
-            verificationUrl: data.verificationUrl,
-            studentName: data.referredName || '',
-            enquiryId: data.enquiryNumber,
-            reminderCount: data.reminderCount,
-            maxReminders: data.maxReminders,
-          },
-        },
-        '',
-        'web',
-      );
+      // Format phone number (last 10 digits)
+      const formattedPhone = data.recipientPhone.toString().slice(-10);
 
-      if (result) {
+      // Try notification service first (includes both email and SMS)
+      let notificationSuccess = false;
+      try {
+        notificationSuccess = await this.notificationService.sendNotification(
+          {
+            slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
+            employee_ids: [],
+            global_ids: [],
+            mail_to: [data.recipientEmail],
+            sms_to: [formattedPhone],
+            param: {
+              recipientType: data.recipientType === 'parent' ? 'Parent' : 'Referrer',
+              recipientName: data.recipientName,
+              referrerName: data.referrerName || data.recipientName,
+              verificationUrl: data.verificationUrl,
+              studentName: data.referredName || '',
+              enquiryId: data.enquiryNumber,
+              reminderCount: data.reminderCount,
+              maxReminders: data.maxReminders,
+            },
+          },
+          '',
+          'web',
+        );
+      } catch (error) {
+        console.error(`[KAFKA CONSUMER] ⚠️ Notification service error: ${error.message}`);
+      }
+
+      // If notification service fails, send SMS directly as fallback
+      if (!notificationSuccess) {
+        console.log(`[KAFKA CONSUMER] 📱 Falling back to direct SMS gateway`);
+        
+        // Build SMS message using template
+        const { buildSmsMessage, SmsTemplateType } = await import('../config/sms-templates.config');
+        
+        const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
+          recipientName: data.recipientName,
+          verificationUrl: data.verificationUrl,
+        });
+
+        const smsSuccess = await this.notificationService.sendDirectSMS(
+          formattedPhone,
+          smsMessage
+        );
+
+        if (smsSuccess) {
+          console.log(`[KAFKA CONSUMER] ✅ SMS sent successfully via direct gateway`);
+          notificationSuccess = true;
+        }
+      }
+
+      if (notificationSuccess) {
         this.processedMessages.add(data.messageId);
-        console.log(`[KAFKA CONSUMER] ✅ Successfully sent reminder to ${data.recipientEmail} (Email + SMS)`);
+        console.log(`[KAFKA CONSUMER] ✅ Successfully sent reminder to ${data.recipientEmail} / ${formattedPhone}`);
+      } else {
+        console.error(`[KAFKA CONSUMER] ❌ Failed to send reminder via all channels`);
       }
     } catch (error) {
       console.error(`[KAFKA CONSUMER] ❌ Error processing reminder:`, error.message);

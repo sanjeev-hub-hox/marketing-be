@@ -1384,6 +1384,97 @@ export class EnquiryHelper {
     });
     return sorted[0]?.enquiry;
   }
+  mergeVisibleRows(rows: any[]): any[] {
+    const map: Record<string, any> = {};
+
+    rows.forEach((r) => {
+      // Unique key for visible grouping
+      const key = [
+        r.cluster ?? 'NA',
+        r.school?.trim() ?? '',
+        r.course?.trim() ?? '',
+        r.board?.trim() ?? '',
+        r.grade?.trim() ?? '',
+        r.stream?.trim() ?? '',
+        r.source?.trim() ?? '',
+        r.subSource?.trim() ?? '',
+      ]
+        .join('|')
+        .toLowerCase();
+
+      // First occurrence → initialize
+      if (!map[key]) {
+        map[key] = {
+          cluster: r.cluster ?? 'NA',
+          school: r.school ?? 'NA',
+          course: r.course ?? 'NA',
+          board: r.board ?? 'NA',
+          grade: r.grade ?? 'NA',
+          stream: r.stream ?? 'NA',
+          source: r.source ?? 'NA',
+          subSource: r.subSource ?? 'NA',
+
+          totalInquiry: r.totalInquiry ?? 0,
+          totalOpenInquiries: r.totalOpenInquiries ?? 0,
+          totalClosedInquiries: r.totalClosedInquiries ?? 0,
+
+          open: {
+            enquiry: r.open?.enquiry ?? 0,
+            walkin: r.open?.walkin ?? 0,
+            kit_sold: r.open?.kit_sold ?? 0,
+            registration: r.open?.registration ?? 0,
+          },
+
+          closed: {
+            enquiry: r.closed?.enquiry ?? 0,
+            walkin: r.closed?.walkin ?? 0,
+            kit_sold: r.closed?.kit_sold ?? 0,
+            registration: r.closed?.registration ?? 0,
+            admission: r.closed?.admission ?? 0,
+          },
+        };
+      } else {
+        // Merge counts
+        map[key].totalInquiry += r.totalInquiry ?? 0;
+        map[key].totalOpenInquiries += r.totalOpenInquiries ?? 0;
+        map[key].totalClosedInquiries += r.totalClosedInquiries ?? 0;
+
+        map[key].open.enquiry += r.open?.enquiry ?? 0;
+        map[key].open.walkin += r.open?.walkin ?? 0;
+        map[key].open.kit_sold += r.open?.kit_sold ?? 0;
+        map[key].open.registration += r.open?.registration ?? 0;
+
+        map[key].closed.enquiry += r.closed?.enquiry ?? 0;
+        map[key].closed.walkin += r.closed?.walkin ?? 0;
+        map[key].closed.kit_sold += r.closed?.kit_sold ?? 0;
+        map[key].closed.registration += r.closed?.registration ?? 0;
+        map[key].closed.admission += r.closed?.admission ?? 0;
+      }
+    });
+
+    // Recompute percentage using merged totals
+    const result = Object.values(map).map((item: any) => {
+      const total = item.totalInquiry || 0;
+      const pct = (n: number) => (!total ? 0 : Math.round((n / total) * 10000) / 100);
+
+      item.open.enquiry_pct = pct(item.open.enquiry);
+      item.open.walkin_pct = pct(item.open.walkin);
+      item.open.kit_sold_pct = pct(item.open.kit_sold);
+      item.open.registration_pct = pct(item.open.registration);
+
+      item.closed.enquiry_pct = pct(item.closed.enquiry);
+      item.closed.walkin_pct = pct(item.closed.walkin);
+      item.closed.kit_sold_pct = pct(item.closed.kit_sold);
+      item.closed.registration_pct = pct(item.closed.registration);
+      item.closed.admission_pct = pct(item.closed.admission);
+
+      return item;
+    });
+
+    return result.sort((a, b) =>
+      a.cluster === b.cluster ? a.school.localeCompare(b.school) : a.cluster.localeCompare(b.cluster),
+    );
+  }
 }
 
 
