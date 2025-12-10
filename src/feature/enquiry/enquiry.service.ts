@@ -144,7 +144,7 @@ export class EnquiryService {
     payload: CheckFeePayload,
     req: any,
   ) {
-
+  
   }
 
 
@@ -155,7 +155,7 @@ export class EnquiryService {
   ) {
     const schoolFeeDetails = await this.fetchSchoolFeeDetails(payload);
     const enquiryId = enquiryDetails?._id;
-
+    
     const RegistrationFeesStatus = enquiryDetails.enquiry_stages.find(
       s => s.stage_name === "Academic Kit Selling"
     )?.status;
@@ -179,7 +179,7 @@ export class EnquiryService {
       );
 
       const chek = await this.enquiryHelper.sendCreateRegistrationFeeRequest(enquiryRecord, req);
-
+      
     }
     if (admissionFeesStatus == 'In Progress' || admissionFeesStatus == 'Completed') {
 
@@ -192,7 +192,7 @@ export class EnquiryService {
         },
       );
 
-      const rhek = await this.admissionService.sendCreateAdmissionPaymentRequest(enquiryRecord, req);
+      const rhek =await this.admissionService.sendCreateAdmissionPaymentRequest(enquiryRecord, req);
     }
   }
   async checkIfFeeAttached(payload: CheckFeePayload, req: any) {
@@ -203,11 +203,11 @@ export class EnquiryService {
 
       await this.updateEnquiryDetails(enquiryDetails._id, payload);
 
-      await this.processNewFees(
-        enquiryDetails,
-        payload,
-        req,
-      );
+        await this.processNewFees(
+          enquiryDetails,
+          payload,
+          req,
+        );
 
     } catch (error) {
       console.error('Error in checkIfFeeAttached:', {
@@ -293,11 +293,11 @@ export class EnquiryService {
     const newUrl = process.env.FINANCE_URL;
     const yeartId = enquiryData.academic_year.value.split(' - ')[1];
     const yeartValue = enquiryData.academic_year.value;
-    console.log('feeData', {
-      type: 'pending',
-      students: [enquire_id],
-      academic_years: [yeartId],
-    },);
+    console.log('feeData',      {
+            type: 'pending',
+            students: [enquire_id],
+            academic_years: [yeartId],
+          },);
 
     const feeData = await axios.post(
       `${newUrl}/fee_collection/fee_details`,
@@ -313,7 +313,7 @@ export class EnquiryService {
         },
       },
     );
-    console.log('feeData', feeData);
+    console.log('feeData',feeData);
 
     if (feeData.status !== 200) {
       console.error(`fee detail with status: ${feeData.status}`);
@@ -322,20 +322,20 @@ export class EnquiryService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    console.log('feeData', feeData?.data);
-    console.log('feeData', feeData?.data?.data);
-    console.log('feeData', feeData?.data?.data?.fees);
-    console.log('feeData', feeData?.data?.data?.fees?.[enquire_id]);
+console.log('feeData',feeData?.data);
+console.log('feeData',feeData?.data?.data);
+console.log('feeData',feeData?.data?.data?.fees);
+console.log('feeData',feeData?.data?.data?.fees?.[enquire_id]);
 
     if (!feeData?.data?.data?.fees?.[enquire_id]) {
       return idArray;
     }
 
-    console.log('feeData', yeartValue, enquire_id);
+console.log('feeData',yeartValue, enquire_id);
 
     const data = feeData?.data?.data.fees[enquire_id][yeartValue];
     idArray = data.map((item) => item.id.toString());
-    console.log('idArray', idArray);
+console.log('idArray',idArray);
 
     if (idArray.length == 0) {
       return idArray;
@@ -346,7 +346,7 @@ export class EnquiryService {
 
   private async performBulkDeEnrollment(enquiryData, enquireId, payload, req) {
     const feeIds = await this.getStudentFeeDetails(enquiryData, enquireId, req, payload);
-    console.log('feeIds', feeIds);
+console.log('feeIds', feeIds);
 
     const newUrl = process.env.FINANCE_URL;
 
@@ -358,12 +358,12 @@ export class EnquiryService {
     );
 
     const reasonId = Number(reasonData?.data[0]?.id);
-    console.log('feeIds', feeIds);
+console.log('feeIds', feeIds);
 
     await Promise.allSettled(
       feeIds.map(async (feeId) => {
         try {
-          console.log('allSettled', feeId);
+            console.log('allSettled',feeId);
 
           const res = await axios.post(
             `${newUrl}/student-fees/bulk-deenrolment`,
@@ -483,10 +483,10 @@ export class EnquiryService {
           enq.parent_details?.father_details
             ? `${enq.parent_details.father_details.first_name || ''} ${enq.parent_details.father_details.last_name || ''}`
             : enq.parent_details?.mother_details
-              ? `${enq.parent_details.mother_details.first_name || ''} ${enq.parent_details.mother_details.last_name || ''}`
-              : enq.parent_details?.guardian_details
-                ? `${enq.parent_details.guardian_details.first_name || ''} ${enq.parent_details.guardian_details.last_name || ''}`
-                : null;
+            ? `${enq.parent_details.mother_details.first_name || ''} ${enq.parent_details.mother_details.last_name || ''}`
+            : enq.parent_details?.guardian_details
+            ? `${enq.parent_details.guardian_details.first_name || ''} ${enq.parent_details.guardian_details.last_name || ''}`
+            : null;
 
         const parentNumber =
           enq.parent_details?.father_details?.mobile ||
@@ -501,7 +501,7 @@ export class EnquiryService {
         const assignedTo = enq.assigned_to || null;
         const enquirySource = enq.enquiry_source?.value || null;
         const enquirySubSource = enq.enquiry_sub_source?.value || null;
-
+        
         const od = enq?.other_details || {};
         const sourceNameNumber =
           (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value} ${od.enquiry_parent_source_enquirynumber ?? ''}`) ??
@@ -548,7 +548,7 @@ export class EnquiryService {
   async verifyReferral(enquiryId: string, verificationType: 'referrer' | 'referral' | 'both') {
     try {
       const enquiry = await this.enquiryRepository.getById(new Types.ObjectId(enquiryId));
-
+      
       if (!enquiry) {
         throw new Error('Enquiry not found');
       }
@@ -571,13 +571,13 @@ export class EnquiryService {
 
       const parentPhone = normalizePhone(parentNumber);
       const od = enquiry.other_details || {};
-
+      
       // Verify and update based on type
       const updateData: any = { ...od };
 
       if (verificationType === 'referrer' || verificationType === 'both') {
         const referrerPhone = normalizePhone(od.referrer?.phoneNumber);
-
+        
         if (referrerPhone && referrerPhone === parentPhone) {
           updateData.referrer = {
             ...od.referrer,
@@ -591,7 +591,7 @@ export class EnquiryService {
 
       if (verificationType === 'referral' || verificationType === 'both') {
         const referralPhone = normalizePhone(od.referral?.phoneNumber);
-
+        
         if (referralPhone && referralPhone === parentPhone) {
           updateData.referral = {
             ...od.referral,
@@ -626,7 +626,7 @@ export class EnquiryService {
     try {
       const objectId = new Types.ObjectId(enquiryId);
       const enquiry = await this.enquiryRepository.getById(objectId);
-
+      
       if (!enquiry) {
         throw new Error('Enquiry not found');
       }
@@ -641,8 +641,8 @@ export class EnquiryService {
         manualVerificationReason: reason || 'Manual verification by admin',
         canUnverify: false, // ✅ NEW: Prevent unverification once manually verified
         verifiedPhoneNumber: enquiry.parent_details?.father_details?.mobile ||
-          enquiry.parent_details?.mother_details?.mobile ||
-          enquiry.parent_details?.guardian_details?.mobile
+                            enquiry.parent_details?.mother_details?.mobile ||
+                            enquiry.parent_details?.guardian_details?.mobile
       };
 
       // Manually verify referrer
@@ -650,7 +650,7 @@ export class EnquiryService {
         if (!od.referrer) {
           throw new Error('Referrer information not found');
         }
-
+        
         updateData.referrer = {
           ...od.referrer,
           ...manualVerificationData
@@ -662,7 +662,7 @@ export class EnquiryService {
         if (!od.referral) {
           throw new Error('Referral information not found');
         }
-
+        
         updateData.referral = {
           ...od.referral,
           ...manualVerificationData
@@ -673,8 +673,8 @@ export class EnquiryService {
         other_details: updateData
       });
 
-      return {
-        success: true,
+      return { 
+        success: true, 
         message: 'Manual verification successful - Money transfer can proceed. This verification cannot be undone.',
         verifiedBy,
         reason,
@@ -688,276 +688,273 @@ export class EnquiryService {
   }
 
 
-  async fetchReferralDetails(id: string) {
-    try {
-      const enquiryDocs = await this.enquiryRepository.getMany({
-        _id: new Types.ObjectId(id),
+async fetchReferralDetails(id: string) {
+  try {
+    const enquiryDocs = await this.enquiryRepository.getMany({
+      _id: new Types.ObjectId(id),
+    });
+
+    if (!enquiryDocs || enquiryDocs.length === 0) {
+      throw new Error("No enquiry found for the given ID");
+    }
+
+    const enquiry = enquiryDocs[0];
+   if(enquiry?.other_details.enquiry_employee_source_value) {
+        const capitalize = (str: string) =>
+        str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+
+      const parts = enquiry.other_details.enquiry_employee_source_value.split('.');
+      const firstName = capitalize(parts[0]);
+      const lastName = capitalize(parts[1].split('@')[0]);
+
+      enquiry.referring_employee_name = `${firstName} ${lastName}`;
+
+   }
+   else if(enquiry?.other_details.enquiry_corporate_source_value){
+    enquiry.referring_corporate_name = enquiry?.other_details.enquiry_corporate_source_value;
+
+   }
+   else if(enquiry?.other_details.enquiry_school_source_value){
+    enquiry.referring_school_name = enquiry?.other_details.enquiry_school_source_value;
+   }
+    // 🟢 Determine available parent name in priority: Father → Mother → Guardian
+        const referredfatherName = `${enquiry.parent_details?.father_details?.first_name} ${enquiry.parent_details?.father_details?.last_name}` || "";
+        const referredmotherName = `${enquiry.parent_details?.mother_details?.first_name} ${enquiry.parent_details?.mother_details?.last_name}` || "";
+        const referredguardianName = `${enquiry.parent_details?.guardian_details?.first_name} ${enquiry.parent_details?.guardian_details?.last_name}` || "";
+
+        const referredparentName =
+          referredfatherName || referredmotherName || referredguardianName || "Unknown";
+
+        // 🟢 Add the extracted parent name to main enquiry details
+        enquiry.referred_parent_name = referredparentName;
+
+
+    // 🟢 Check if parent enquiry source exists
+    const parentSourceId = enquiry?.other_details?.enquiry_parent_source_id;
+
+    if (parentSourceId) {
+      const parentEnquiryDocs = await this.enquiryRepository.getMany({
+        _id: new Types.ObjectId(parentSourceId),
       });
 
-      if (!enquiryDocs || enquiryDocs.length === 0) {
-        throw new Error("No enquiry found for the given ID");
+      if (parentEnquiryDocs?.length) {
+        const parent = parentEnquiryDocs[0];
+        const parentDetails = parent?.parent_details || {};
+
+        // 🟢 Determine available parent name in priority: Father → Mother → Guardian
+        const referringfatherName = `${parentDetails?.father_details?.first_name} ${parentDetails?.father_details?.last_name}` || "";
+        const referringmotherName = `${parentDetails?.mother_details?.first_name} ${parentDetails?.mother_details?.last_name}` || "";
+        const referringguardianName = `${parentDetails?.guardian_details?.first_name} ${parentDetails?.guardian_details?.last_name}` || "";
+
+        const referringparentName =
+          referringfatherName || referringmotherName || referringguardianName || "Unknown";
+
+        // 🟢 Add the extracted parent name to main enquiry details
+        enquiry.referring_parent_name = referringparentName;
       }
-
-      const enquiry = enquiryDocs[0];
-      if (enquiry?.other_details.enquiry_employee_source_value) {
-        const capitalize = (str: string) =>
-          str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-
-        const parts = enquiry.other_details.enquiry_employee_source_value.split('.');
-        const firstName = capitalize(parts[0]);
-        const lastName = capitalize(parts[1].split('@')[0]);
-
-        enquiry.referring_employee_name = `${firstName} ${lastName}`;
-
-      }
-      else if (enquiry?.other_details.enquiry_corporate_source_value) {
-        enquiry.referring_corporate_name = enquiry?.other_details.enquiry_corporate_source_value;
-
-      }
-      else if (enquiry?.other_details.enquiry_school_source_value) {
-        enquiry.referring_school_name = enquiry?.other_details.enquiry_school_source_value;
-      }
-      // 🟢 Determine available parent name in priority: Father → Mother → Guardian
-      const referredfatherName = `${enquiry.parent_details?.father_details?.first_name} ${enquiry.parent_details?.father_details?.last_name}` || "";
-      const referredmotherName = `${enquiry.parent_details?.mother_details?.first_name} ${enquiry.parent_details?.mother_details?.last_name}` || "";
-      const referredguardianName = `${enquiry.parent_details?.guardian_details?.first_name} ${enquiry.parent_details?.guardian_details?.last_name}` || "";
-
-      const referredparentName =
-        referredfatherName || referredmotherName || referredguardianName || "Unknown";
-
-      // 🟢 Add the extracted parent name to main enquiry details
-      enquiry.referred_parent_name = referredparentName;
-
-
-      // 🟢 Check if parent enquiry source exists
-      const parentSourceId = enquiry?.other_details?.enquiry_parent_source_id;
-
-      if (parentSourceId) {
-        const parentEnquiryDocs = await this.enquiryRepository.getMany({
-          _id: new Types.ObjectId(parentSourceId),
-        });
-
-        if (parentEnquiryDocs?.length) {
-          const parent = parentEnquiryDocs[0];
-          const parentDetails = parent?.parent_details || {};
-
-          // 🟢 Determine available parent name in priority: Father → Mother → Guardian
-          const referringfatherName = `${parentDetails?.father_details?.first_name} ${parentDetails?.father_details?.last_name}` || "";
-          const referringmotherName = `${parentDetails?.mother_details?.first_name} ${parentDetails?.mother_details?.last_name}` || "";
-          const referringguardianName = `${parentDetails?.guardian_details?.first_name} ${parentDetails?.guardian_details?.last_name}` || "";
-
-          const referringparentName =
-            referringfatherName || referringmotherName || referringguardianName || "Unknown";
-
-          // 🟢 Add the extracted parent name to main enquiry details
-          enquiry.referring_parent_name = referringparentName;
-        }
-      }
-
-      console.log("got the details", enquiry);
-      return [enquiry];
-
-    } catch (error) {
-      console.error("Error fetching referral details:", error);
-      throw error;
     }
+
+    console.log("got the details", enquiry);
+    return [enquiry];
+
+  } catch (error) {
+    console.error("Error fetching referral details:", error);
+    throw error;
+  }
+}
+
+
+async referralConfirmation(enquiryId: string, reqbody) {
+  const { type, phoneNumber, action } = reqbody;
+
+  const existingEnquiry = await this.enquiryRepository.getById(
+    new Types.ObjectId(enquiryId)
+  );
+  if (!existingEnquiry) {
+    throw new HttpException('Enquiry not found', HttpStatus.NOT_FOUND);
   }
 
+  const otherDetails = existingEnquiry.other_details || {};
+  const parentDetails = existingEnquiry.parent_details || {};
+  const targetKey = action === 'referrer' ? 'referrer' : 'referral';
 
-  async referralConfirmation(enquiryId: string, reqbody) {
-    const { type, phoneNumber, action } = reqbody;
+  // 🧩 Check if this side was already verified
+  if (otherDetails?.[targetKey]?.verified === true) {
+    return { message: 'Referral details were already submitted.' };
+  }
 
-    const existingEnquiry = await this.enquiryRepository.getById(
-      new Types.ObjectId(enquiryId)
+  // 🧱 Initialize stored object
+  const storedTarget = otherDetails[targetKey] || {};
+  const failedAttempts = storedTarget.failedAttempts || 0;
+
+  // 🛑 Lock if 3 attempts done
+  if (failedAttempts >= 3) {
+    throw new HttpException(
+      'Maximum attempts reached. Please contact admin or try again later.',
+      HttpStatus.BAD_REQUEST
     );
-    if (!existingEnquiry) {
-      throw new HttpException('Enquiry not found', HttpStatus.NOT_FOUND);
-    }
+  }
 
-    const otherDetails = existingEnquiry.other_details || {};
-    const parentDetails = existingEnquiry.parent_details || {};
-    const targetKey = action === 'referrer' ? 'referrer' : 'referral';
+  let isMatch = false;
 
-    // 🧩 Check if this side was already verified
-    if (otherDetails?.[targetKey]?.verified === true) {
-      return { message: 'Referral details were already submitted.' };
-    }
+  if (action === 'referral') {
+    // ✅ Referral → check against source numbers
+    const validNumbers = [
+      otherDetails.enquiry_parent_source_value,
+      otherDetails.enquiry_employee_source_number,
+      otherDetails.enquiry_corporate_source_number,
+      otherDetails.enquiry_school_source_number,
+    ].filter(Boolean);
 
-    // 🧱 Initialize stored object
-    const storedTarget = otherDetails[targetKey] || {};
-    const failedAttempts = storedTarget.failedAttempts || 0;
+    isMatch = validNumbers.includes(phoneNumber);
+  } else if (action === 'referrer') {
+    // ✅ Referrer → check in parent_details
+    const validNumbers = [
+      parentDetails?.father_details?.mobile,
+      parentDetails?.mother_details?.mobile,
+      parentDetails?.guardian_details?.mobile,
+    ].filter(Boolean);
 
-    // 🛑 Lock if 3 attempts done
-    if (failedAttempts >= 3) {
-      throw new HttpException(
-        'Maximum attempts reached. Please contact admin or try again later.',
-        HttpStatus.BAD_REQUEST
-      );
-    }
+    isMatch = validNumbers.includes(phoneNumber);
+  }
 
-    let isMatch = false;
+  // ❌ Wrong number case
+  if (!isMatch) {
+    const newAttempts = failedAttempts + 1;
+    const attemptsLeft = 3 - newAttempts;
 
-    if (action === 'referral') {
-      // ✅ Referral → check against source numbers
-      const validNumbers = [
-        otherDetails.enquiry_parent_source_value,
-        otherDetails.enquiry_employee_source_number,
-        otherDetails.enquiry_corporate_source_number,
-        otherDetails.enquiry_school_source_number,
-      ].filter(Boolean);
-
-      isMatch = validNumbers.includes(phoneNumber);
-    } else if (action === 'referrer') {
-      // ✅ Referrer → check in parent_details
-      const validNumbers = [
-        parentDetails?.father_details?.mobile,
-        parentDetails?.mother_details?.mobile,
-        parentDetails?.guardian_details?.mobile,
-      ].filter(Boolean);
-
-      isMatch = validNumbers.includes(phoneNumber);
-    }
-
-    // ❌ Wrong number case
-    if (!isMatch) {
-      const newAttempts = failedAttempts + 1;
-      const attemptsLeft = 3 - newAttempts;
-
-      const updatePayload: any = {
-        other_details: {
-          ...otherDetails,
-          [targetKey]: {
-            ...(storedTarget || {}),
-            type,
-            phoneNumber,
-            failedAttempts: newAttempts,
-            verified: false,
-          },
+    const updatePayload: any = {
+      other_details: {
+        ...otherDetails,
+        [targetKey]: {
+          ...(storedTarget || {}),
+          type,
+          phoneNumber,
+          failedAttempts: newAttempts,
+          verified: false,
         },
-      };
-
-      await this.enquiryRepository.updateById(
-        new Types.ObjectId(enquiryId),
-        updatePayload
-      );
-
-      if (newAttempts >= 3) {
-        throw new HttpException(
-          'Incorrect phone number entered 3 times. Verification locked.',
-          HttpStatus.BAD_REQUEST
-        );
-      }
-
-      throw new HttpException(
-        `Incorrect phone number. ${attemptsLeft} attempt(s) left.`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-
-    // ✅ Correct number
-    const updatedDetails = {
-      ...otherDetails,
-      [targetKey]: {
-        type,
-        phoneNumber,
-        verified: true,
-        failedAttempts: 0,
       },
     };
 
-    // 🟩 Check if both verified → set referralStatus true
-    const referrerVerified = updatedDetails.referrer?.verified === true;
-    const referralVerified = updatedDetails.referral?.verified === true;
-
-    if (referrerVerified && referralVerified) {
-      updatedDetails.referralStatus = true;
-    }
-
     await this.enquiryRepository.updateById(
       new Types.ObjectId(enquiryId),
-      { other_details: updatedDetails }
+      updatePayload
     );
 
-    return { message: `${action} verified successfully.` };
-  }
-
-
-
-  async getEnrollmentAndParentNumber(search?: string) {
-    try {
-
-      const filter: any = {
-        "student_details.enrolment_number": { $nin: ["null", null, ""] }
-      };
-
-      //! Sanjeev Majhi
-      const enquiryDocs = await this.enquiryRepository.getManyL(
-        filter,
-        {
-          _id: 1,
-          student_name: 1,
-          "student_details.enrolment_number": 1,  // ✅ Correct field
-          "parent_details.father_details.mobile": 1,
-          "parent_details.mother_details.mobile": 1,
-          "parent_details.guardian_details.mobile": 1,
-          "parent_details.father_details.first_name": 1,
-          "parent_details.mother_details.first_name": 1,
-          "parent_details.guardian_details.first_name": 1,
-          "parent_details.father_details.last_name": 1,
-          "parent_details.mother_details.last_name": 1,
-          "parent_details.guardian_details.last_name": 1,
-          "academic_year.value": 1
-        },
-        { limit: 200, sort: { "student_details.enrolment_number": 1 } } // ✅ Correct sorting
-      )
-
-      const result = enquiryDocs.map((enq) => {
-        const father = enq.parent_details?.father_details
-        const mother = enq.parent_details?.mother_details
-        const guardian = enq.parent_details?.guardian_details
-
-        let parentPhone = null
-        let parentName = null
-
-        if (father?.mobile) {
-          parentPhone = father.mobile
-          parentName = [father.first_name, father.last_name].filter(Boolean).join(" ")
-        } else if (mother?.mobile) {
-          parentPhone = mother.mobile
-          parentName = [mother.first_name, mother.last_name].filter(Boolean).join(" ")
-        } else if (guardian?.mobile) {
-          parentPhone = guardian.mobile
-          parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(" ")
-        }
-
-        return {
-          id: enq._id,
-          student_name: enq.student_name,
-          enrollment_number: enq.student_details?.enrolment_number || null, // ✅ Correct return
-          parent_phone: parentPhone,
-          parent_name: parentName,
-          academic_year: enq.academic_year.value
-        }
-      })
-
-      //! Get the unique Enrollment ID
-      const unique = [];
-      const seen = new Set();
-
-      for (const item of result) {
-        if (!seen.has(item.enrollment_number)) {
-          seen.add(item.enrollment_number);
-          unique.push(item);
-        }
-      }
-
-      return unique;
-    } catch (error) {
-      console.error("Error fetching enrollment number and parent numbers:", error)
-      throw error
+    if (newAttempts >= 3) {
+      throw new HttpException(
+        'Incorrect phone number entered 3 times. Verification locked.',
+        HttpStatus.BAD_REQUEST
+      );
     }
+
+    throw new HttpException(
+      `Incorrect phone number. ${attemptsLeft} attempt(s) left.`,
+      HttpStatus.BAD_REQUEST
+    );
   }
 
+  // ✅ Correct number
+  const updatedDetails = {
+    ...otherDetails,
+    [targetKey]: {
+      type,
+      phoneNumber,
+      verified: true,
+      failedAttempts: 0,
+    },
+  };
+
+  // 🟩 Check if both verified → set referralStatus true
+  const referrerVerified = updatedDetails.referrer?.verified === true;
+  const referralVerified = updatedDetails.referral?.verified === true;
+
+  if (referrerVerified && referralVerified) {
+    updatedDetails.referralStatus = true;
+  }
+
+  await this.enquiryRepository.updateById(
+    new Types.ObjectId(enquiryId),
+    { other_details: updatedDetails }
+  );
+
+  return { message: `${action} verified successfully.` };
+}
+
+
+
+async getEnquiryidAndParentNumber(search?: string) {
+  try {
+    const filter: any = {}
+
+    if (search) {
+      // Search in enquiry_number or any parent mobile
+      filter.$or = [
+        { enquiry_number: { $regex: search, $options: 'i' } },
+        { 'parent_details.father_details.mobile': { $regex: search, $options: 'i' } },
+        { 'parent_details.mother_details.mobile': { $regex: search, $options: 'i' } },
+        { 'parent_details.guardian_details.mobile': { $regex: search, $options: 'i' } }
+      ]
+    }
+
+    const enquiryDocs = await this.enquiryRepository.getManyL(
+      filter,
+      {
+        _id: 1,
+        enquiry_number: 1,
+        student_name: 1,
+        'parent_details.father_details.mobile': 1,
+        'parent_details.mother_details.mobile': 1,
+        'parent_details.guardian_details.mobile': 1,
+        'parent_details.father_details.first_name': 1,
+        'parent_details.mother_details.first_name': 1,
+        'parent_details.guardian_details.first_name': 1,
+        'parent_details.father_details.last_name': 1,
+        'parent_details.mother_details.last_name': 1,
+        'parent_details.guardian_details.last_name': 1,
+        'academic_year.value': 1
+      },
+      { limit: 200, sort: { enquiry_number: 1 } } // Limit top 200 matches
+    )
+
+  const result = enquiryDocs.map((enq) => {
+  const father = enq.parent_details?.father_details;
+  const mother = enq.parent_details?.mother_details;
+  const guardian = enq.parent_details?.guardian_details;
+
+  // Determine which parent’s mobile exists first
+  let parentPhone = null;
+  let parentName = null;
+
+  if (father?.mobile) {
+    parentPhone = father.mobile;
+    parentName = [father.first_name, father.last_name].filter(Boolean).join(' ');
+  } else if (mother?.mobile) {
+    parentPhone = mother.mobile;
+    parentName = [mother.first_name, mother.last_name].filter(Boolean).join(' ');
+  } else if (guardian?.mobile) {
+    parentPhone = guardian.mobile;
+    parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(' ');
+  }
+
+  return {
+    id: enq._id,
+    student_name: enq.student_name,
+    enquiry_number: enq.enquiry_number,
+    parent_phone: parentPhone,
+    parent_name: parentName,
+    academic_year: enq.academic_year.value
+  };
+});
+
+console.log("matching referrals",result);
+
+    return result
+  } catch (error) {
+    console.error('Error fetching enquiry id and parent numbers:', error)
+    throw error
+  }
+}
 
   private async getEnquiryDetail(enquiryNumber: string) {
     const enquiryDetails =
@@ -979,19 +976,19 @@ export class EnquiryService {
         throw new NotFoundException('Enquiry number not found');
       }
 
-      await Promise.all([
-        this.enquiryRepository.updateOne(
-          {
-            enquiry_number: enquiryNumber,
-            'enquiry_stages.stage_name': 'Admission Status'
+    await Promise.all([
+      this.enquiryRepository.updateOne(
+        { 
+          enquiry_number: enquiryNumber,
+          'enquiry_stages.stage_name': 'Admission Status'
+        },
+        {
+          $set: {
+            'enquiry_stages.$.status': 'Approved',
           },
-          {
-            $set: {
-              'enquiry_stages.$.status': 'Approved',
-            },
-          },
-        ),
-      ]);
+        },
+      ),
+    ]);
     } catch (error) {
       console.error('Error in admission approvel', {
         error: error.message,
@@ -1068,14 +1065,14 @@ export class EnquiryService {
     let previousData = null;
 
 
-    previousData = await this.axiosService
-      .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-      .setUrl(`${ADMIN_API_URLS.STUDENT_PROFILE}/${body[0].studentId}`)
-      .setMethod(EHttpCallMethods.GET)
-      .setHeaders({
-        Authorization: req.headers.authorization,
-      } as AxiosRequestHeaders)
-      .sendRequest();
+   previousData = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(`${ADMIN_API_URLS.STUDENT_PROFILE}/${body[0].studentId}`)
+          .setMethod(EHttpCallMethods.GET)
+          .setHeaders({
+            Authorization: req.headers.authorization,
+          } as AxiosRequestHeaders)
+          .sendRequest(); 
 
 
 
@@ -1152,7 +1149,7 @@ export class EnquiryService {
           message,
           body[j]?.studentId,
           req
-        );
+        );        
         const info = await transporter.sendMail({
           from: process.env.MAIL_FROM,
           to: body[j].ParentEmail,
@@ -1165,7 +1162,7 @@ export class EnquiryService {
                 <br>
                 Thank you,<br>
                 VIBGYOR`,
-        });
+                });
 
         await this.parentLoginLogService.createLog({
           studentId: body[j].studentId,
@@ -1216,7 +1213,7 @@ export class EnquiryService {
                 <br>
                 Thank you,<br>
                 VIBGYOR`,
-        });
+        });     
 
         await this.parentLoginLogService.createLog({
           studentId: body[j].studentId,
@@ -1383,34 +1380,34 @@ export class EnquiryService {
       });
     }
 
-    const updatedData = await this.axiosService
-      .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-      .setUrl(`${ADMIN_API_URLS.STUDENT_PROFILE}/${body[0].studentId}`)
-      .setMethod(EHttpCallMethods.GET)
-      .setHeaders({
-        Authorization: req?.headers?.authorization,
-      } as AxiosRequestHeaders)
-      .sendRequest();
+   const updatedData = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(`${ADMIN_API_URLS.STUDENT_PROFILE}/${body[0].studentId}`)
+          .setMethod(EHttpCallMethods.GET)
+          .setHeaders({
+            Authorization: req?.headers?.authorization,
+          } as AxiosRequestHeaders)
+          .sendRequest(); 
 
-    const auditLogs = await this.auditLogRepository.create({
-      table_name: 'mdm_ac_students',
-      request_body: body,
-      response_body: `${JSON.stringify(body ?? {})}`,
-      operation_name: 'update-student-guardian-mapping',
-      created_by: 0,
-      url: `/admin/studentProfile/update`,
-      ip_address: 'NA',
-      method: HTTP_METHODS.PUT,
-      source_service: this.configService.get<string>('SERVICE'),
-      record_id: body[0].studentId,
-      meta: {
-        updated: updatedData?.data?.data,
-        previous: previousData?.data?.data,
-        updated_by: `${body[0].ParentfirstName} ${body[0].ParentLastName}`,
-      },
-    });
+      const auditLogs = await this.auditLogRepository.create({
+        table_name: 'mdm_ac_students',
+        request_body: body,
+        response_body: `${JSON.stringify(body ?? {})}`,
+        operation_name: 'update-student-guardian-mapping',
+        created_by: 0,
+        url: `/admin/studentProfile/update`,
+        ip_address: 'NA',
+        method: HTTP_METHODS.PUT,
+        source_service: this.configService.get<string>('SERVICE'),
+        record_id: body[0].studentId,
+        meta: {
+          updated: updatedData?.data?.data,
+          previous: previousData?.data?.data,
+          updated_by: `${body[0].ParentfirstName} ${body[0].ParentLastName}`,
+        },
+      });
 
-
+    
     return guardinaRelationship;
   }
 
@@ -1563,12 +1560,12 @@ export class EnquiryService {
 
   async sendSMS(phone: number, message: string, studentId: any = null, req: any) {
     const options: any = await this.smsGatewayOptions();
-    console.log('sendSMS-', `${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`);
+    console.log('sendSMS-',`${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`);
     try {
       const res = await axios.get(
         `${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`,
       );
-      console.log('sendSMS res-', JSON.stringify(res));
+    console.log('sendSMS res-',JSON.stringify(res));
 
       await this.parentLoginLogService.createLog({
         studentId: studentId || 0,
@@ -1600,7 +1597,7 @@ export class EnquiryService {
       .setHeaders({
         Authorization: req.headers.authorization,
       } as AxiosRequestHeaders)
-      .sendRequest();
+      .sendRequest(); 
 
     for (let i = 0; i < body.length; i++) {
 
@@ -1810,7 +1807,7 @@ export class EnquiryService {
             ip: req?.ip,
           });
         }
-        console.log('clean student guardian data');
+              console.log('clean student guardian data');
 
         //  clean student guardian data
         const siblingFilter = totalSiblingIds
@@ -1820,23 +1817,23 @@ export class EnquiryService {
         const url = `${MDM_API_URLS.STUDENT_GUARDIAN}?${siblingFilter}&filters[guardian_id][$eq]=${guardian[a]?.guardianId}`;
         const allStudentGuardian = await this.mdmService.fetchDataFromAPI(url);
 
-        console.log('allStudentGuardian', JSON.stringify(allStudentGuardian));
+        console.log('allStudentGuardian',JSON.stringify(allStudentGuardian));
         for (let x = 0; x < allStudentGuardian?.data?.length; x++) {
-          const removedStudentGuardian = await this.mdmService.putDataToAPI(
-            `${MDM_API_URLS.STUDENT_GUARDIAN}/${allStudentGuardian?.data[x]?.id}`,
-            { data: { guardian_id: null, student_id: null } },
-          );
-          await this.parentLoginLogService.createLog({
-            studentId: studentId,
-            event: ParentLoginEvent.MAP_SIBLING_API,
-            action: 'dummy student-guardian record updated for given sibling',
-            log_data: { removedStudentGuardian },
-            ip: req?.ip,
-          });
+            const removedStudentGuardian = await this.mdmService.putDataToAPI(
+              `${MDM_API_URLS.STUDENT_GUARDIAN}/${allStudentGuardian?.data[x]?.id}`,
+              { data: { guardian_id: null, student_id: null } },
+            );
+            await this.parentLoginLogService.createLog({
+              studentId: studentId,
+              event: ParentLoginEvent.MAP_SIBLING_API,
+              action: 'dummy student-guardian record updated for given sibling',
+              log_data: { removedStudentGuardian },
+              ip: req?.ip,
+          }); 
         }
       }
     }
-
+    
     const updatedData = await this.axiosService
       .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
       .setUrl(`${ADMIN_API_URLS.STUDENT_PROFILE}/${body[0].studentId}`)
@@ -1864,7 +1861,7 @@ export class EnquiryService {
       },
     });
 
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     for (let j = 0; j < body.length - 1; j++) {
       for (let k = j + 1; k < body.length; k++) {
         const { studentId } = body[j];
@@ -2084,7 +2081,7 @@ export class EnquiryService {
   async reOpenEnquiry(enquiryId: string, reqBody: any) {
 
     console.log("reqbody", reqBody);
-
+    
     try {
       if (!enquiryId) {
         throw new NotFoundException('Enquiry Id not found');
@@ -2142,8 +2139,8 @@ export class EnquiryService {
           event_sub_type: EEnquiryEventSubType.ENQUIRY_ACTION,
           event: EEnquiryEvent.ENQUIRY_REOPENED,
           log_data: reqBody?.reopenReason,
-          created_by: reqBody?.created_by?.user_name ? reqBody?.created_by?.user_name : 'NA',
-          created_by_id: reqBody?.created_by?.user_id ? reqBody?.created_by?.user_id : 'NA',
+          created_by: reqBody?.created_by?.user_name? reqBody?.created_by?.user_name : 'NA' ,
+          created_by_id: reqBody?.created_by?.user_id? reqBody?.created_by?.user_id : 'NA',
         });
       }
     } catch (error) {
@@ -2202,7 +2199,7 @@ export class EnquiryService {
   }
 
   async create(req: Request) {
-
+   
     const payload = req.body;
 
     const { metadata, data } = payload;
@@ -2282,39 +2279,39 @@ export class EnquiryService {
     createPayload.other_details['terms_and_conditions_email_sent'] = false; //Setting the flag as false by default
     createPayload.other_details['are_terms_and_condition_accepted'] = true; //Setting the flag as true bypass the terms and conditions check, in future again set the flag as false
     // Nikhil
-    // Map Employee Source
-    if (data['enquiry_employee_source.id']) {
-      createPayload.other_details['enquiry_employee_source_id'] = data['enquiry_employee_source.id'];
-      createPayload.other_details['enquiry_employee_source_value'] = data['enquiry_employee_source.value'];
-      createPayload.other_details['enquiry_employee_source_name'] = data['enquiry_employee_source.name'];
-      createPayload.other_details['enquiry_employee_source_number'] = data['enquiry_employee_source.number'];
-    }
+   // Map Employee Source
+if (data['enquiry_employee_source.id']) {
+  createPayload.other_details['enquiry_employee_source_id'] = data['enquiry_employee_source.id'];
+  createPayload.other_details['enquiry_employee_source_value'] = data['enquiry_employee_source.value'];
+  createPayload.other_details['enquiry_employee_source_name'] = data['enquiry_employee_source.name'];
+  createPayload.other_details['enquiry_employee_source_number'] = data['enquiry_employee_source.number'];
+}
 
-    // Map Parent Source
-    else if (data['enquiry_parent_source.id']) {
-      createPayload.other_details['enquiry_parent_source_id'] = data['enquiry_parent_source.id'];
-      createPayload.other_details['enquiry_parent_source_value'] = data['enquiry_parent_source.value'];
-      createPayload.other_details['enquiry_parent_source_enquirynumber'] = data['enquiry_parent_source.enquirynumber'];
-    }
+// Map Parent Source
+else if (data['enquiry_parent_source.id']) {
+  createPayload.other_details['enquiry_parent_source_id'] = data['enquiry_parent_source.id'];
+  createPayload.other_details['enquiry_parent_source_value'] = data['enquiry_parent_source.value'];
+  createPayload.other_details['enquiry_parent_source_enquirynumber'] = data['enquiry_parent_source.enquirynumber'];
+}
 
-    // Map Corporate Source
-    else if (data['enquiry_corporate_source.id']) {
-      createPayload.other_details['enquiry_corporate_source_id'] = data['enquiry_corporate_source.id'];
-      createPayload.other_details['enquiry_corporate_source_value'] = data['enquiry_corporate_source.value'];
-      createPayload.other_details['enquiry_corporate_source_number'] = data['enquiry_corporate_source.spoc_mobile_no'];
-      createPayload.other_details['enquiry_corporate_source_email'] = data['enquiry_corporate_source.spoc_email'];
-    }
+// Map Corporate Source
+else if (data['enquiry_corporate_source.id']) {
+  createPayload.other_details['enquiry_corporate_source_id'] = data['enquiry_corporate_source.id'];
+  createPayload.other_details['enquiry_corporate_source_value'] = data['enquiry_corporate_source.value'];
+  createPayload.other_details['enquiry_corporate_source_number'] = data['enquiry_corporate_source.spoc_mobile_no'];
+  createPayload.other_details['enquiry_corporate_source_email'] = data['enquiry_corporate_source.spoc_email'];
+}
 
-    // Map Pre-School Source
-    else if (data['enquiry_school_source.id']) {
-      createPayload.other_details['enquiry_school_source_id'] = data['enquiry_school_source.id'];
-      createPayload.other_details['enquiry_school_source_value'] = data['enquiry_school_source.value'];
-      createPayload.other_details['enquiry_school_source_number'] = data['enquiry_school_source.spoc_mobile_no'];
-      createPayload.other_details['enquiry_school_source_email'] = data['enquiry_school_source.spoc_email'];
-    }
+// Map Pre-School Source
+else if (data['enquiry_school_source.id']) {
+  createPayload.other_details['enquiry_school_source_id'] = data['enquiry_school_source.id'];
+  createPayload.other_details['enquiry_school_source_value'] = data['enquiry_school_source.value'];
+  createPayload.other_details['enquiry_school_source_number'] = data['enquiry_school_source.spoc_mobile_no'];
+  createPayload.other_details['enquiry_school_source_email'] = data['enquiry_school_source.spoc_email'];
+}
 
 
-
+   
     createPayload.enquiry_number = await this.enquiryHelper.getGlobalId(
       GLOBAL_ENQUIRY_GENERATOR_ID,
     );
@@ -2458,7 +2455,7 @@ export class EnquiryService {
         enrolment_number: createPayload?.student_details?.enrolment_number,
       });
       const previousEnquiryDetails = await this.enquiryRepository.getById(new Types.ObjectId(admissionDetail.enquiry_id));
-
+      
       createPayload.parent_details = { ...previousEnquiryDetails.parent_details };
       // createPayload.existing_school_details = { ...previousEnquiryDetails.existing_school_details };
       createPayload.residential_details = { ...previousEnquiryDetails.residential_details };
@@ -2610,26 +2607,26 @@ export class EnquiryService {
       enquiry_type_id as string,
     );
     updatePayload.enquiry_form_id = new Types.ObjectId(form_id as string);
-
+    
     if (userInfo) {
-      // check if school_location.id is different than in DB
-      const newLocationId = payload?.data?.['school_location.id'];
-      const oldLocationId = existingEnquiryDetails?.school_location?.id;
-      console.log("locations:", newLocationId, oldLocationId, userInfo?.user_name);
+  // check if school_location.id is different than in DB
+  const newLocationId = payload?.data?.['school_location.id'];
+  const oldLocationId = existingEnquiryDetails?.school_location?.id;
+console.log("locations:", newLocationId, oldLocationId, userInfo?.user_name);
 
-      if (newLocationId && String(newLocationId) !== String(oldLocationId)) {
-        updatePayload.assigned_to = userInfo?.user_name ?? null;
-        updatePayload.assigned_to_id = userInfo?.user_id ?? null;
-      }
-      this.enquiryLogService.createLog({
-        enquiry_id: new Types.ObjectId(enquiryId),
-        event_type: EEnquiryEventType.REASSIGN,
-        event_sub_type: EEnquiryEventSubType.ADMISSION_ACTION,
-        event: EEnquiryEvent.ENQUIRY_REASSIGNED,
-        created_by: `${userInfo?.user_name}`,
-        created_by_id: userInfo?.user_id,
-      })
-    }
+  if (newLocationId && String(newLocationId) !== String(oldLocationId)) {
+    updatePayload.assigned_to = userInfo?.user_name ?? null;
+    updatePayload.assigned_to_id = userInfo?.user_id ?? null;
+  }
+  this.enquiryLogService.createLog({
+          enquiry_id: new Types.ObjectId(enquiryId),
+          event_type: EEnquiryEventType.REASSIGN,
+          event_sub_type: EEnquiryEventSubType.ADMISSION_ACTION,
+          event: EEnquiryEvent.ENQUIRY_REASSIGNED,
+          created_by: `${userInfo?.user_name}`,
+          created_by_id: userInfo?.user_id,
+        })
+}
 
 
     const { updatedEnquiryStages, isRegistrationStageCompleted } =
@@ -2699,43 +2696,43 @@ export class EnquiryService {
       updatePayload,
     );
     // 🔎 Re-fetch latest enquiry to ensure updated stages are included
-    const getEnquiry = await this.enquiryRepository.getById(enquiry._id);
+const getEnquiry = await this.enquiryRepository.getById(enquiry._id);
 
-    // ---- Stage based checks ----
-    const registrationStage = getEnquiry.enquiry_stages.find(
-      (stage) => stage.stage_name === "Academic Kit Selling"
-    );
+// ---- Stage based checks ----
+const registrationStage = getEnquiry.enquiry_stages.find(
+  (stage) => stage.stage_name === "Academic Kit Selling"
+);
 
-    const admissionStage = getEnquiry.enquiry_stages.find(
-      (stage) => stage.stage_name === "Payment"
-    );
+const admissionStage = getEnquiry.enquiry_stages.find(
+  (stage) => stage.stage_name === "Payment"
+);
 
-    console.log("registrationStage", registrationStage);
-    console.log("admissionStage", admissionStage);
+console.log("registrationStage", registrationStage);
+console.log("admissionStage", admissionStage);
 
-    // Handle registration fee trigger
-    if (
-      registrationStage?.status === "In Progress" ||
-      admissionStage?.status === "Completed"
-    ) {
-      await this.enquiryRepository.updateById(getEnquiry._id, {
-        registration_fee_request_triggered: false,
-      });
+// Handle registration fee trigger
+if (
+  registrationStage?.status === "In Progress" ||
+  admissionStage?.status === "Completed"
+) {
+  await this.enquiryRepository.updateById(getEnquiry._id, {
+    registration_fee_request_triggered: false,
+  });
 
-      await this.enquiryHelper.sendCreateRegistrationFeeRequest(getEnquiry, req);
-    }
+  await this.enquiryHelper.sendCreateRegistrationFeeRequest(getEnquiry, req);
+}
 
-    // Handle admission fee trigger
-    if (
-      admissionStage?.status === "In Progress" ||
-      admissionStage?.status === "Completed"
-    ) {
-      await this.admissionRepository.updateById(getEnquiry._id, {
-        admission_fee_request_triggered: false,
-      });
+// Handle admission fee trigger
+if (
+  admissionStage?.status === "In Progress" ||
+  admissionStage?.status === "Completed"
+) {
+  await this.admissionRepository.updateById(getEnquiry._id, {
+    admission_fee_request_triggered: false,
+  });
 
-      await this.admissionService.sendPaymentRequest(enquiryId, req);
-    }
+  await this.admissionService.sendPaymentRequest(enquiryId, req);
+}
 
     if (isRegistrationStageCompleted) {
       const tPlusFiveDate = new Date();
@@ -2919,11 +2916,11 @@ export class EnquiryService {
                 $or: [
                   {
                     $and: [
-                      {
+                      { 
                         $in: [
-                          '$$stage.stage_name',
+                          '$$stage.stage_name', 
                           ['Enquiry', 'Admitted or Provisional Approval']
-                        ]
+                        ] 
                       },
                       {
                         $eq: ['$$stage.status', EEnquiryStageStatus.INPROGRESS],
@@ -3447,7 +3444,7 @@ export class EnquiryService {
       await this.enquiryRepository.updateById(new Types.ObjectId(enquiryId), {
         enquiry_stages: updatedStages,
       });
-
+      
     }
 
     // Push the newly uploaded documents to academics if the admission is completed
@@ -3695,7 +3692,7 @@ export class EnquiryService {
       enquiryTypeStages.forEach((enquiryTypeStage) => {
         if (
           enquiryStage.stage_id.toString() ===
-          enquiryTypeStage.stage_id.toString() &&
+            enquiryTypeStage.stage_id.toString() &&
           (enquiryStage.status === EEnquiryStageStatus.COMPLETED ||
             enquiryStage.status === EEnquiryStageStatus.PASSED ||
             enquiryStage.status === EEnquiryStageStatus.APPROVED)
@@ -4002,8 +3999,8 @@ export class EnquiryService {
           (enquiry?.student_last_name ?? ''),
         stage_name: enquiry.stages
           ? (enquiry.stages.find(
-            (stage) => stage.status === EEnquiryStageStatus.OPEN,
-          )?.stage_name ??
+              (stage) => stage.status === EEnquiryStageStatus.OPEN,
+            )?.stage_name ??
             enquiry?.lastCompletedStage?.stage_name ??
             'N/A')
           : 'N/A',
@@ -4196,11 +4193,11 @@ export class EnquiryService {
       await Promise.all([
         ...(isAnyRoundRobinAssignedIndex > -1
           ? [
-            this.enquiryRepository.updateById(
-              enquiryData[isAnyRoundRobinAssignedIndex]._id,
-              { round_robin_assigned: RoundRobinAssignedStatus.NO },
-            ),
-          ]
+              this.enquiryRepository.updateById(
+                enquiryData[isAnyRoundRobinAssignedIndex]._id,
+                { round_robin_assigned: RoundRobinAssignedStatus.NO },
+              ),
+            ]
           : []),
         this.enquiryHelper.roundRobinAssign(
           enquiryDataFromPayloadEnquiryIds,
@@ -4392,7 +4389,7 @@ export class EnquiryService {
     action?: string,
   ) {
 
-
+    
     // Fetch existing enquiry docs for audit comparison
     const enquiryDocs = await this.enquiryRepository.getMany({
       _id: { $in: enquiryIds },
@@ -4436,7 +4433,7 @@ export class EnquiryService {
           event_sub_type: EEnquiryEventSubType.ADMISSION_ACTION,
           event: EEnquiryEvent.ENQUIRY_REOPENED,
           created_by:
-            reopenDetails.user_name ?? 'System',
+            reopenDetails.user_name ?? 'System'  ,
           created_by_id:
             reopenDetails.user_id ?? -1,
           log_data: {
@@ -4496,22 +4493,22 @@ export class EnquiryService {
     enquiryType
   ) {
     // console.log("findDublicateIVTenquiry", enrollment, enquiryNumber, enquiryType);
-
+    
     // if(!enrollment && !enquiryNumber && !enquiryType){
 
     // }
-    let query = {
-      'student_details.enrolment_number': enrollment,
-      // 'enquiry_number': {$ne:enquiryNumber},
-      'other_details.enquiry_type': enquiryType,
-      "enquiry_stages": {
-        "$elemMatch": {
-          "stage_name": "Enquiry",
-          "status": { $in: ['Completed', 'In Progress'] }
+      let query = {
+        'student_details.enrolment_number': enrollment,
+        // 'enquiry_number': {$ne:enquiryNumber},
+        'other_details.enquiry_type': enquiryType,
+        "enquiry_stages": {
+          "$elemMatch": {
+            "stage_name": "Enquiry",
+            "status": { $in: ['Completed', 'In Progress'] }
+          }
         }
       }
-    }
-    console.log("query", query);
+      console.log("query", query);
     return await this.enquiryRepository.getMany(query);
   }
 
@@ -5102,10 +5099,10 @@ export class EnquiryService {
           ],
           ...(school_id.length
             ? {
-              'school_location.id': {
-                $in: school_id,
-              },
-            }
+                'school_location.id': {
+                  $in: school_id,
+                },
+              }
             : {}),
         },
       },
@@ -5159,17 +5156,17 @@ export class EnquiryService {
     const enquiryList = await this.enquiryRepository.aggregate(pipeline);
     return enquiryList?.length
       ? enquiryList.map((enquiry) => {
-        return {
-          id: enquiry.enquiry_id,
-          display_name:
-            (enquiry?.student_first_name ?? '') +
-            ' ' +
-            (enquiry?.student_last_name ?? '') +
-            ' - ' +
-            enquiry.enquiry_number,
-          enr_no: enquiry.enquiry_number,
-        };
-      })
+          return {
+            id: enquiry.enquiry_id,
+            display_name:
+              (enquiry?.student_first_name ?? '') +
+              ' ' +
+              (enquiry?.student_last_name ?? '') +
+              ' - ' +
+              enquiry.enquiry_number,
+            enr_no: enquiry.enquiry_number,
+          };
+        })
       : [];
   }
 
@@ -5311,10 +5308,10 @@ export class EnquiryService {
         // TODO: This call must be removed after implementing kit number logic in production
         process.env.NODE_ENV === 'production'
           ? this.enquiryStageUpdateService.moveToNextStage(
-            enquiry_id,
-            'Academic Kit Selling',
-            req,
-          )
+              enquiry_id,
+              'Academic Kit Selling',
+              req,
+            )
           : () => Promise.resolve(true),
       ]);
       const { school_location } = enquiryDetails;
@@ -5506,13 +5503,13 @@ export class EnquiryService {
           EAdmissionApprovalStatus[AdmissionStatus[admisionDto.status]],
       }),
       ...(enquiryDetails?.other_details?.enquiry_type === EEnquiryType.IVT ||
-        enquiryDetails?.other_details?.enquiry_type === EEnquiryType.READMISSION
+      enquiryDetails?.other_details?.enquiry_type === EEnquiryType.READMISSION
         ? [
-          this.admissionRepository.create({
-            enquiry_id: enquiryId,
-            admission_approval_status: status,
-          }),
-        ]
+            this.admissionRepository.create({
+              enquiry_id: enquiryId,
+              admission_approval_status: status,
+            }),
+          ]
         : []),
       this.enquiryLogService.createLog({
         enquiry_id: enquiryId,
@@ -6293,20 +6290,20 @@ export class EnquiryService {
           followUpdate =
             e?.next_follow_up_date.split('T')?.length > 0
               ? e?.next_follow_up_date
-                .split('T')[0]
-                .split('-')
-                .reverse()
-                .join('-')
+                  .split('T')[0]
+                  .split('-')
+                  .reverse()
+                  .join('-')
               : null;
         } else if (typeof e?.next_follow_up_date === 'object') {
           followUpdate =
             e?.next_follow_up_date.toISOString().split('T')?.length > 0
               ? e?.next_follow_up_date
-                .toISOString()
-                .split('T')[0]
-                .split('-')
-                .reverse()
-                .join('-')
+                  .toISOString()
+                  .split('T')[0]
+                  .split('-')
+                  .reverse()
+                  .join('-')
               : null;
         }
       }
@@ -6493,15 +6490,15 @@ export class EnquiryService {
       false,
     );
 
-    if (jobId) {
-      await this.jobShadulerService.updateJob(jobId, {
+    if(jobId){
+      await this.jobShadulerService.updateJob(jobId,{
         jobId: jobId,
         user: 'System',
-        event: 'Enquiry details report',
+        event: 'Enquiry details report',  
         jobData: {
-          url: signedUrl,
-          fileName: uploadedFileName,
-        },
+            url: signedUrl,
+            fileName: uploadedFileName,
+          },
       });
     }
     return {
@@ -6509,12 +6506,12 @@ export class EnquiryService {
       fileName: uploadedFileName,
     };
   }
-  parseDate = (dateStr: string) => {
-    const [day, month, year] = dateStr.split('-');
-    return new Date(`${year}-${month}-${day}`);
-  };
+ parseDate = (dateStr: string) => {
+  const [day, month, year] = dateStr.split('-');
+  return new Date(`${year}-${month}-${day}`);
+};
   //! daily enquiry report - SANJEEV MAJHI
-  async dailyEnquiryReport(data) {
+  async dailyEnquiryReport(data) {    
     const pipeline = [
       {
         $lookup: {
@@ -6548,11 +6545,11 @@ export class EnquiryService {
           status: "Open",
           enquiryLogs: {
             $elemMatch: {
-              event: {
+              event: { 
                 $in: [
                   EEnquiryEvent.SCHOOL_TOUR_SCHEDULED,
                   EEnquiryEvent.SCHOOL_TOUR_RESCHEDULE
-                ]
+                ] 
               }
             }
           }
@@ -6732,11 +6729,11 @@ export class EnquiryService {
                     $map: {
                       input: "$enquiryLogs",
                       as: "log",
-                      in: {
+                      in: { 
                         $in: [
-                          "$$log.event",
+                          "$$log.event", 
                           ["School tour scheduled", EEnquiryEvent.SCHOOL_TOUR_RESCHEDULE]
-                        ]
+                        ] 
                       },
                     },
                   },
@@ -6754,9 +6751,9 @@ export class EnquiryService {
               in: {
                 $switch: {
                   branches: [
-                    {
-                      case: { $eq: ["$$lastEvent", "School tour cancelled"] },
-                      then: "Cancelled"
+                    { 
+                      case: { $eq: ["$$lastEvent", "School tour cancelled"] }, 
+                      then: "Cancelled" 
                     },
                     {
                       case: "$$hasCompleted",
@@ -6781,42 +6778,42 @@ export class EnquiryService {
       const start = this.parseDate(start_date);
       const end = this.parseDate(end_date);
       pipeline.push(
-        {
-          $match: {
-            $expr: {
-              $and: [
-                {
-                  $gte: [
-                    {
-                      $dateFromString: {
-                        dateString: "$appointment_date",
-                        format: "%d-%m-%Y",
-                        onError: null,
-                        onNull: null
-                      }
-                    },
-                    start
-                  ]
-                },
-                {
-                  $lte: [
-                    {
-                      $dateFromString: {
-                        dateString: "$appointment_date",
-                        format: "%d-%m-%Y",
-                        onError: null,
-                        onNull: null
-                      }
-                    },
-                    end
-                  ]
-                }
-              ]
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $gte: [
+                      {
+                        $dateFromString: {
+                          dateString: "$appointment_date",
+                          format: "%d-%m-%Y",
+                          onError: null,
+                          onNull: null
+                        }
+                      },
+                      start
+                    ]
+                  },
+                  {
+                    $lte: [
+                      {
+                        $dateFromString: {
+                          dateString: "$appointment_date",
+                          format: "%d-%m-%Y",
+                          onError: null,
+                          onNull: null
+                        }
+                      },
+                      end
+                    ]
+                  }
+                ]
+              }
             }
-          }
-        } as any
-      );
-    }
+          } as any
+        );
+      }
     const enquiryDetails = await this.enquiryRepository.aggregate(pipeline);
 
 
@@ -6911,7 +6908,7 @@ export class EnquiryService {
         filename,
         'text/csv',
       );
-
+      
     await this.setFileUploadStorage();
     const uploadedFileName = await this.storageService.uploadFile(
       file,
@@ -6965,13 +6962,13 @@ export class EnquiryService {
     // Apply filter_by logic (CC Only, School Only, All)
     if (filter_by === "CC Only") {
       // Filter enquiries handled by Call Center
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"]
+      matchConditions["enquiry_mode.value"] = { 
+        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"] 
       };
     } else if (filter_by === "School Only") {
       // Filter enquiries handled by School directly
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Walkin", "Walkin (VMS)"]
+      matchConditions["enquiry_mode.value"] = { 
+        $in: ["Walkin", "Walkin (VMS)"] 
       };
     }
 
@@ -7007,7 +7004,7 @@ export class EnquiryService {
               }
             }
           },
-
+          
           // Check if "School visit" stage exists
           has_school_visit_stage: {
             $anyElementTrue: {
@@ -7031,7 +7028,7 @@ export class EnquiryService {
               }
             }
           },
-
+          
           // Check if "Registration" stage exists
           has_registration_stage: {
             $anyElementTrue: {
@@ -7055,14 +7052,14 @@ export class EnquiryService {
               }
             }
           },
-
+          
           // Check if "Admitted" stage exists
           has_admission_stage: {
             $anyElementTrue: {
               $map: {
                 input: "$enquiry_stages",
                 as: "stage",
-                in: {
+                in: { 
                   $and: [
                     {
                       $or: [
@@ -7071,8 +7068,8 @@ export class EnquiryService {
                     },
                     {
                       $or: [
-                        { $eq: ["$$stage.status", "Provisional Admission"] },
-                        { $eq: ["$$stage.status", "Admitted"] }
+                         { $eq: ["$$stage.status", "Provisional Admission"]},
+                         { $eq: ["$$stage.status", "Admitted"]}
                       ]
                     }
                   ]
@@ -7080,7 +7077,7 @@ export class EnquiryService {
               }
             }
           },
-
+          
           // Determine if this enquiry should be EXCLUDED from QL
           // Based on your RL/QL definition: exclude Spam, Duplicate, Admission Denied, Not Reachable
           is_excluded_from_ql: {
@@ -7112,7 +7109,7 @@ export class EnquiryService {
           total_qualified_leads: {
             $sum: {
               $cond: [
-                {
+                { 
                   $and: [
                     "$has_school_visit_stage",
                     { $eq: ["$is_excluded_from_ql", false] }
@@ -7153,19 +7150,19 @@ export class EnquiryService {
           grade: { $ifNull: ["$_id.grade", "N/A"] },
           source: { $ifNull: ["$_id.source", "N/A"] },
           sub_source: { $ifNull: ["$_id.sub_source", "N/A"] },
-
+          
           // Metrics
           RL: "$total_raw_leads",
           QL: "$total_qualified_leads",
           Appt: "$total_appointment",
           Walkin: "$total_walkin",
           Admission: "$total_admission",
-
+          
           // Conversion Percentages (whole numbers)
           rl_to_ql_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_qualified_leads", "$total_raw_leads"] }, 100] },
                   0
@@ -7174,11 +7171,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           ql_to_appt_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_appointment", "$total_qualified_leads"] }, 100] },
                   0
@@ -7187,11 +7184,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           appt_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_appointment", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_appointment"] }, 100] },
                   0
@@ -7200,11 +7197,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           walkin_to_admission_percent: {
             $cond: [
               { $gt: ["$total_walkin", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_walkin"] }, 100] },
                   0
@@ -7213,11 +7210,11 @@ export class EnquiryService {
               null  // Will be converted to "#DIV/0!"
             ]
           },
-
+          
           rl_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_raw_leads"] }, 100] },
                   0
@@ -7226,11 +7223,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           rl_to_admission_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_raw_leads"] }, 100] },
                   0
@@ -7239,11 +7236,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           ql_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_qualified_leads"] }, 100] },
                   0
@@ -7252,11 +7249,11 @@ export class EnquiryService {
               0
             ]
           },
-
+          
           ql_to_admission_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_qualified_leads"] }, 100] },
                   0
@@ -7289,7 +7286,7 @@ export class EnquiryService {
     let schoolClusterMap = {};
     if (group_by.includes('cluster')) {
       const schoolIds = [...new Set(reportData.map((e: any) => e.school_id).filter(Boolean))];
-
+      
       if (schoolIds.length > 0) {
         try {
           const schoolDetails = await this.mdmService.postDataToAPI(
@@ -7338,8 +7335,8 @@ export class EnquiryService {
       formattedRow['RL to QL %'] = row.rl_to_ql_percent ? `${row.rl_to_ql_percent}%` : '0%';
       formattedRow['QL to Appt %'] = row.ql_to_appt_percent ? `${row.ql_to_appt_percent}%` : '0%';
       formattedRow['Appt to Walkin%'] = row.appt_to_walkin_percent ? `${row.appt_to_walkin_percent}%` : '0%';
-      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null
-        ? '#DIV/0!'
+      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null 
+        ? '#DIV/0!' 
         : `${row.walkin_to_admission_percent || 0}%`;
       formattedRow['RL to Admission %'] = row.rl_to_admission_percent ? `${row.rl_to_admission_percent}%` : '0%';
       formattedRow['RL to Walkin%'] = row.rl_to_walkin_percent ? `${row.rl_to_walkin_percent}%` : '0%';
@@ -7356,7 +7353,7 @@ export class EnquiryService {
     if (group_by.includes('grade')) fields.push('Grade');
     if (group_by.includes('source')) fields.push('Source');
     if (group_by.includes('sub_source')) fields.push('Sub-Source');
-
+    
     // Add metric fields (always visible)
     fields.push(
       'RL', 'QL', 'Appt', 'Walkin', 'Admission',
@@ -7422,15 +7419,15 @@ export class EnquiryService {
     if (group_by.includes('cluster') || group_by.includes('school')) {
       groupExpression.school = "$school_location.value";
     }
-
+    
     if (group_by.includes('grade')) {
       groupExpression.grade = "$student_details.grade.value";
     }
-
+    
     if (group_by.includes('source')) {
       groupExpression.source = "$enquiry_source.value";
     }
-
+    
     if (group_by.includes('sub_source')) {
       groupExpression.sub_source = "$enquiry_sub_source.value";
     }
@@ -7854,10 +7851,10 @@ export class EnquiryService {
                       $filter: {
                         input: { $ifNull: ['$admissionDetails', []] },
                         as: 'record',
-                        cond: {
-                          $and: [
-                            { $ne: ['$$record.enrolment_number', null] },
-                            { $ne: ['$$record.student_id', null] },
+                          cond: {
+                            $and: [
+                              { $ne: ['$$record.enrolment_number', null] },
+                              { $ne: ['$$record.student_id', null] },
                           ],
                         },
                       },
@@ -8479,20 +8476,20 @@ export class EnquiryService {
           followUpdate =
             e?.next_follow_up_at.split('T')?.length > 0
               ? e?.next_follow_up_at
-                .split('T')[0]
-                .split('-')
-                .reverse()
-                .join('-')
+                  .split('T')[0]
+                  .split('-')
+                  .reverse()
+                  .join('-')
               : null;
         } else if (typeof e?.next_follow_up_at === 'object') {
           followUpdate =
             e?.next_follow_up_at.toISOString().split('T')?.length > 0
               ? e?.next_follow_up_at
-                .toISOString()
-                .split('T')[0]
-                .split('-')
-                .reverse()
-                .join('-')
+                  .toISOString()
+                  .split('T')[0]
+                  .split('-')
+                  .reverse()
+                  .join('-')
               : null;
         }
       }
@@ -8713,7 +8710,7 @@ export class EnquiryService {
         filename,
         'text/csv',
       );
-
+    
     await this.setFileUploadStorage();
     const uploadedFileName = await this.storageService.uploadFile(
       file,
@@ -8735,15 +8732,15 @@ export class EnquiryService {
       false,
     );
 
-    if (jobId) {
-      await this.jobShadulerService.updateJob(jobId, {
+    if(jobId){
+      await this.jobShadulerService.updateJob(jobId,{
         jobId: jobId,
         user: 'System',
-        event: 'admission details report',
+        event: 'admission details report',  
         jobData: {
-          url: signedUrl,
-          fileName: uploadedFileName,
-        },
+            url: signedUrl,
+            fileName: uploadedFileName,
+          },
       });
     }
 
@@ -8879,13 +8876,13 @@ export class EnquiryService {
     }
     const checkProcessrequest = await this.mdmService.fetchDataFromAPI(`${MDM_API_URLS.PROCESS_REQUEST}?filters[student_id][$eq]=${payload?.student_id}&filters[request_type][$eq]=${'admission_10_11_request'}&filters[is_processed][$eq]=true`);
 
-    const { enquiry_stages, documents, other_details, academic_year } = enquiryDetails;
+    const { enquiry_stages, documents, other_details , academic_year } = enquiryDetails;
 
     const admissionType = this.enquiryHelper.getAdmissionType(documents);
     enquiry_stages[enquiry_stages.length - 1].status = admissionType;
 
-    if (other_details?.enquiry_type === EEnquiryType.ADMISSION_10_11) {
-      if (admissionDetails?.draft_student_id && checkProcessrequest.length > 0) {
+    if(other_details?.enquiry_type === EEnquiryType.ADMISSION_10_11) {
+      if(admissionDetails?.draft_student_id  && checkProcessrequest.length > 0) {
         await this.admissionRepository.updateByEnquiryId(
           new Types.ObjectId(enquiryId),
           {
@@ -8896,34 +8893,34 @@ export class EnquiryService {
           enquiry_stages: enquiry_stages,
         });
         const {
-          subject_details,
-          draft_student_id,
-        } = await this.admissionRepository.getOne({
-          enquiry_id: enquiryId,
-        });
-        this.loggerService.log(
-          `Proceeding to call create student subject as student id is ${draft_student_id}`,
-        );
-        const year = academic_year?.value?.split('-')[1].trim();
-        const studentId = payload?.student_id
-        const submitStudentMappingDataPromises = [];
-        subject_details.forEach((subject) => {
-          submitStudentMappingDataPromises.push(
-            this.mdmService.postDataToAPI(
-              MDM_API_URLS.SUBMIT_SUBJECT_DETAILS,
-              {
-                data: {
-                  subject_id: subject.subject_id,
-                  student_id: studentId,
-                  academic_year: year,
-                  selected_on: moment(new Date()).format('YYYY-MM-DD'),
-                  selected_for: `${+academic_year.value.split('-')[0] + 1}-01-01`,
-                  grade_id: 11,
-                },
-              },
-            ),
-          );
-        });
+            subject_details,
+            draft_student_id,
+          } = await this.admissionRepository.getOne({
+            enquiry_id: enquiryId,
+          });
+            this.loggerService.log(
+              `Proceeding to call create student subject as student id is ${draft_student_id}`,
+            );
+            const year = academic_year?.value?.split('-')[1].trim();
+          const studentId = payload?.student_id
+            const submitStudentMappingDataPromises = [];
+            subject_details.forEach((subject) => {
+              submitStudentMappingDataPromises.push(
+                this.mdmService.postDataToAPI(
+                  MDM_API_URLS.SUBMIT_SUBJECT_DETAILS,
+                  {
+                    data: {
+                      subject_id: subject.subject_id,
+                      student_id: studentId,
+                      academic_year: year,
+                      selected_on: moment(new Date()).format('YYYY-MM-DD'),
+                      selected_for: `${+academic_year.value.split('-')[0] + 1}-01-01`,
+                      grade_id: 11,
+                    },
+                  },
+                ),
+              );
+            });
         return;
       }
       await Promise.all([
@@ -8959,13 +8956,13 @@ export class EnquiryService {
   async getEnquirybyStudentId(payload: any) {
     const studentId = payload?.studentId;
     let requestType = payload?.requestType;
-    const admissionDetail: any = await this.admissionRepository.getMany({ student_id: studentId });
-    for (let i = 0; i < admissionDetail?.length; i++) {
+    const admissionDetail:any = await this.admissionRepository.getMany({ student_id: studentId }    );
+      for (let i = 0; i < admissionDetail?.length; i++) {
       const enquirydata = await this.enquiryRepository.getById(new Types.ObjectId(admissionDetail[i]?.enquiry_id));
-      if (requestType == enquirydata.other_details.enquiry_type) {
-        return enquirydata;
-      }
-    }
+        if(requestType == enquirydata.other_details.enquiry_type){
+          return enquirydata;
+        }
+      } 
     return 'no data';
   }
 
@@ -9067,7 +9064,7 @@ export class EnquiryService {
   //       }
   //     }
   //   }
-
+    
   // }
   async checkReopenNeeded(requestBody: any) {
 
@@ -9116,10 +9113,10 @@ export class EnquiryService {
       let message = '';
       switch (enquiry_type) {
         case EEnquiryType.ADMISSION_10_11:
-          message = 'Unactive Vibgyor Student'
+         message= 'Unactive Vibgyor Student'
           break;
         case EEnquiryType.NEW_ADMISSION:
-          message = 'Student already admitted'
+         message= 'Student already admitted'
           break;
         default:
           break;
@@ -9140,8 +9137,8 @@ export class EnquiryService {
       return;
     }
 
-    const higherStageEnquiry = await this.enquiryHelper.getHighestStageEnquiry(existingLeads, academicYearId);
-
+    const higherStageEnquiry =  await this.enquiryHelper.getHighestStageEnquiry(existingLeads, academicYearId);
+    
     // 2. Check for same academic year lead
     const checkSameAY = existingLeads.find(
       (lead) => lead?.academic_year?.id == academicYearId,
@@ -9152,7 +9149,7 @@ export class EnquiryService {
           if (lead._id.toString() === higherStageEnquiry?._id.toString()) {
             return; // skip this lead
           }
-          if (lead?.status === EEnquiryStatus.OPEN) {
+          if(lead?.status === EEnquiryStatus.OPEN){
             return Promise.all([
               this.enquiryRepository.updateById(
                 new Types.ObjectId(lead?._id),
@@ -9209,15 +9206,15 @@ export class EnquiryService {
         });
         message = 'Duplicate Enquiry Found, Continue With New';
         enquiryNo = existingLeads
-          .map((lead) => ({
-            id: lead.enquiry_number,
-            url: `enquiries/view/${lead._id}`,
-            status: lead.status,
-          }))
-          .reverse();
-      } else {
+        .map((lead) => ({
+          id: lead.enquiry_number,
+          url: `enquiries/view/${lead._id}`,
+          status: lead.status,
+        }))
+        .reverse();
+      }else{
         message = 'Enquiry Already Exists';
-        enquiryNo = [{
+        enquiryNo =[{
           id: higherStageEnquiry.enquiry_number,
           url: `enquiries/view/${higherStageEnquiry._id}`,
           status: 'Open',
@@ -9230,13 +9227,13 @@ export class EnquiryService {
     } else {
       if (requestBody?.enquiry_id) {
         let lead = existingLeads?.find(lead => lead._id.toString() === requestBody?.enquiry_id?.toString());
-        if (lead?.status === EEnquiryStatus.CLOSED) {
+        if (lead?.status === EEnquiryStatus.CLOSED){
           await this.enquiryRepository.updateById(
-            new Types.ObjectId(requestBody?.enquiry_id),
-            {
-              status: EEnquiryStatus.OPEN,
-            },
-          );
+              new Types.ObjectId(requestBody?.enquiry_id),
+              {
+                status: EEnquiryStatus.OPEN,
+              },
+            );
           await this.enquiryLogService.createLog({
             enquiry_id: new Types.ObjectId(requestBody._id),
             event_type: EEnquiryEventType.ENQUIRY,
@@ -9257,7 +9254,7 @@ export class EnquiryService {
           if (lead._id.toString() === requestBody?.enquiry_id?.toString()) {
             return; // skip this lead
           }
-          if (lead?.status === EEnquiryStatus.OPEN) {
+          if(lead?.status === EEnquiryStatus.OPEN){
             return Promise.all([
               this.enquiryRepository.updateById(
                 new Types.ObjectId(lead?._id),
@@ -9301,353 +9298,6 @@ export class EnquiryService {
         message: 'Duplicate Enquiry Found, Continue With New',
         data: enquiryNo,
       };
-    }
-  }
-  //! Source Conversion Report - Abhishek
-  async sourceConversionReport(): Promise<any[]> {
-    // Build aggregation pipeline (lookups + flags + grouping + percentage)
-    const pipeline: any[] = [
-      { $lookup: { from: 'admission', localField: '_id', foreignField: 'enquiry_id', as: 'admissionDetails' } },
-      {
-        $lookup: {
-          from: 'enquiryLogs',
-          localField: '_id',
-          foreignField: 'enquiry_id',
-          as: 'enquiryLogs',
-          pipeline: [{ $sort: { _id: -1 } }, { $project: { event: 1, created_at: 1, log_data: 1 } }],
-        },
-      },
-
-      // Enrichment flags + dimension fields
-      {
-        $addFields: {
-          school_id: '$school_location.id',
-          cluster: { $ifNull: ['$school_location.cluster_name', null] },
-          school: { $ifNull: ['$school_location.value', 'NA'] },
-          course: { $ifNull: ['$course.value', 'NA'] },
-          board: { $ifNull: ['$board.value', 'NA'] },
-          grade: { $ifNull: ['$student_details.grade.value', 'NA'] },
-          stream: { $ifNull: ['$stream.value', 'NA'] },
-          source: { $ifNull: ['$enquiry_source.value', 'NA'] },
-          subSource: { $ifNull: ['$enquiry_sub_source.value', 'NA'] },
-
-          // Status flags
-          hasWalkin: {
-            $cond: [
-              {
-                $or: [
-                  { $and: [{ $ifNull: ['$walkin_date', false] }, { $ne: ['$walkin_date', null] }] },
-                  {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: { $eq: ['$$l.event', EEnquiryEvent.SCHOOL_TOUR_COMPLETED] },
-                        },
-                      },
-                    }, 0],
-                  },
-                ],
-              },
-              1,
-              0,
-            ],
-          },
-
-          hasKitSold: {
-            $cond: [
-              {
-                $or: [
-                  { $and: [{ $ifNull: ['$kit_sold_date', false] }, { $ne: ['$kit_sold_date', null] }] },
-                  {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: { $eq: ['$$l.event', EEnquiryEvent.REGISTRATION_FEE_RECEIVED] },
-                        },
-                      },
-                    }, 0],
-                  },
-                ],
-              },
-              1,
-              0,
-            ],
-          },
-
-          hasRegistration: {
-            $cond: [
-              {
-                $gt: [{
-                  $size: {
-                    $filter: {
-                      input: { $ifNull: ['$enquiryLogs', []] },
-                      as: 'l',
-                      cond: {
-                        $in: ['$$l.event', [
-                          EEnquiryEvent.REGISTRATION_FEE_RECEIVED,
-                          EEnquiryEvent.REGISTRATION_DETAILS_RECIEVED,
-                          EEnquiryEvent.PAYMENT_RECEIVED,
-                        ]],
-                      },
-                    },
-                  },
-                }, 0],
-              },
-              1,
-              0,
-            ],
-          },
-
-          hasAdmission: {
-            $cond: [
-              {
-                $or: [
-                  { $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0] },
-                  {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: {
-                            $in: ['$$l.event', [
-                              EEnquiryEvent.ADMISSION_FEE_RECEIVED,
-                              EEnquiryEvent.ADMISSION_COMPLETED,
-                              EEnquiryEvent.ADMISSION_APPROVED,
-                            ]],
-                          },
-                        },
-                      },
-                    }, 0],
-                  },
-                ],
-              },
-              1,
-              0,
-            ],
-          },
-
-          isClosed: { $cond: [{ $eq: ['$status', EEnquiryStatus.CLOSED] }, 1, 0] },
-        },
-      },
-
-      // Group by visible dimensions
-      {
-        $group: {
-          _id: {
-            school_id: '$school_id',
-            school: '$school',
-            course: '$course',
-            board: '$board',
-            grade: '$grade',
-            stream: '$stream',
-            source: '$source',
-            subSource: '$subSource',
-          },
-          totalInquiry: { $sum: 1 },
-          totalClosedInquiries: { $sum: '$isClosed' },
-          totalOpenInquiries: { $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] } },
-
-          open_enquiry: { $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] } },
-          open_walkin: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasWalkin', 1] }] }, 1, 0] } },
-          open_kit_sold: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasKitSold', 1] }] }, 1, 0] } },
-          open_registration: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasRegistration', 1] }] }, 1, 0] } },
-
-          closed_enquiry: { $sum: { $cond: [{ $eq: ['$isClosed', 1] }, 1, 0] } },
-          closed_walkin: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasWalkin', 1] }] }, 1, 0] } },
-          closed_kit_sold: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasKitSold', 1] }] }, 1, 0] } },
-          closed_registration: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasRegistration', 1] }] }, 1, 0] } },
-          closed_admission: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasAdmission', 1] }] }, 1, 0] } },
-        },
-      },
-
-      // Percentage calculation
-      {
-        $project: {
-          _id: 0,
-          school_id: '$_id.school_id',
-          school: '$_id.school',
-          course: '$_id.course',
-          board: '$_id.board',
-          grade: '$_id.grade',
-          stream: '$_id.stream',
-          source: '$_id.source',
-          subSource: '$_id.subSource',
-          totalInquiry: 1,
-
-          open: {
-            enquiry: '$open_enquiry',
-            enquiry_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_enquiry', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            walkin: '$open_walkin',
-            walkin_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_walkin', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            kit_sold: '$open_kit_sold',
-            kit_sold_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_kit_sold', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            registration: '$open_registration',
-            registration_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_registration', '$totalInquiry'] }, 100] }, 2] }, 0] },
-          },
-
-          closed: {
-            enquiry: '$closed_enquiry',
-            enquiry_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_enquiry', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            walkin: '$closed_walkin',
-            walkin_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_walkin', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            kit_sold: '$closed_kit_sold',
-            kit_sold_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_kit_sold', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            registration: '$closed_registration',
-            registration_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_registration', '$totalInquiry'] }, 100] }, 2] }, 0] },
-
-            admission: '$closed_admission',
-            admission_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_admission', '$totalInquiry'] }, 100] }, 2] }, 0] },
-          },
-
-          totalOpenInquiries: 1,
-          totalClosedInquiries: 1,
-        },
-      },
-
-      { $sort: { school: 1, course: 1, board: 1, grade: 1, stream: 1, source: 1, subSource: 1 } },
-    ];
-
-    const aggRows = await this.enquiryRepository.aggregate(pipeline).allowDiskUse(true);
-
-    // Collect school IDs for MDM lookup
-    const schoolIds = [...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean))];
-
-    // No MDM? return merged rows with cluster=NA
-    if (!schoolIds.length) {
-      return this.enquiryHelper.mergeVisibleRows(aggRows.map((r) => ({ cluster: 'NA', ...r })));
-    }
-
-    // Fetch MDM school metadata
-    const schoolDetailsResp = await this.mdmService.postDataToAPI(MDM_API_URLS.SEARCH_SCHOOL, {
-      operator: `school_id In (${schoolIds.toString()})`,
-    });
-
-    const mdmSchools: any[] = schoolDetailsResp?.data?.schools ?? [];
-    const normalizeGrade = (g: string) => g?.replace(/^Grade\s*/i, '').trim().toLowerCase() || '';
-
-    // Attach cluster
-    const finalRows = aggRows.map((r) => {
-      let cluster = 'NA';
-
-      const matched = mdmSchools.find((s) => {
-        if (String(s.school_id) !== String(r.school_id)) return false;
-        if (s.grade_name) {
-          return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
-        }
-        return true;
-      });
-
-      if (matched) {
-        cluster = matched.cluster_name ?? 'NA';
-      }
-
-      return { cluster, ...r };
-    });
-
-    // Merge identical visible rows
-    return this.enquiryHelper.mergeVisibleRows(finalRows);
-  }
-
-  async generateAndUploadSourceConversionCsv(
-    finalRows: any[],
-  ): Promise<{ url: string; fileName: string }> {
-    try {
-      const mergedRows = this.enquiryHelper.mergeVisibleRows(finalRows);
-
-      const formattedEnquiries = mergedRows.map((r) => ({
-        Cluster: r.cluster ?? 'NA',
-        School: r.school ?? 'NA',
-        Course: r.course ?? 'NA',
-        Board: r.board ?? 'NA',
-        Grade: r.grade ?? 'NA',
-        Stream: r.stream ?? 'NA',
-        Source: r.source ?? 'NA',
-        'Sub Source': r.subSource ?? 'NA',
-
-        'Total Inquiry': r.totalInquiry ?? 0,
-
-        'Open Enquiry %': Number((r.open.enquiry_pct ?? 0).toFixed(2)),
-        'Open Walkin %': Number((r.open.walkin_pct ?? 0).toFixed(2)),
-        'Open KitSold %': Number((r.open.kit_sold_pct ?? 0).toFixed(2)),
-        'Open Registration %': Number((r.open.registration_pct ?? 0).toFixed(2)),
-
-        'Close Enquiry %': Number((r.closed.enquiry_pct ?? 0).toFixed(2)),
-        'Close Walkin %': Number((r.closed.walkin_pct ?? 0).toFixed(2)),
-        'Close KitSold %': Number((r.closed.kit_sold_pct ?? 0).toFixed(2)),
-        'Close Registration %': Number((r.closed.registration_pct ?? 0).toFixed(2)),
-
-        'Total OpenInquiries': r.totalOpenInquiries ?? 0,
-        'Total ClosedInquiries': r.totalClosedInquiries ?? 0,
-      }));
-
-      const fields: string[] = [
-        'Cluster',
-        'School',
-        'Course',
-        'Board',
-        'Grade',
-        'Stream',
-        'Source',
-        'Sub Source',
-        'Total Inquiry',
-        'Open Enquiry %',
-        'Open Walkin %',
-        'Open KitSold %',
-        'Open Registration %',
-        'Close Enquiry %',
-        'Close Walkin %',
-        'Close KitSold %',
-        'Close Registration %',
-        'Total OpenInquiries',
-        'Total ClosedInquiries',
-      ];
-
-      const date = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-      const [month, day, year] = date.split(',')[0].split('/');
-      const timePart = date.split(',')[1].trimStart().split(' ')[0].replace(/:/g, '');
-      const filename = `SourceWise-Conversion-Report-${day}-${month}-${year}-${timePart}.csv`;
-
-      // generate CSV
-      const generatedAny: any = await this.csvService.generateCsv(formattedEnquiries, fields, filename);
-
-      // Support both shapes: string OR { csv: string }
-      const csvContent: string =
-        typeof generatedAny === 'string' ? generatedAny : (generatedAny && typeof generatedAny.csv === 'string' ? generatedAny.csv : '');
-
-      if (!csvContent) {
-        throw new Error('CSV generation failed or returned empty content.');
-      }
-
-      const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
-        Buffer.from(csvContent),
-        filename,
-        'text/csv',
-      );
-
-      await this.setFileUploadStorage();
-
-      const uploadedFileName = await this.storageService.uploadFile(file, filename);
-      if (!uploadedFileName) {
-        throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
-      }
-
-      const bucketName = this.configService.get<string>('BUCKET_NAME');
-      const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
-
-      return { url: signedUrl, fileName: uploadedFileName };
-    } catch (err) {
-      throw new HttpException(err?.message ?? 'Failed to generate/upload CSV', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

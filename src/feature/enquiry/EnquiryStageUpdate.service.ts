@@ -342,7 +342,7 @@ export class EnquiryStageUpdateService {
               this.loggerService.log(`Sending initial referral notifications...`);
               
               try {
-                await this.referralReminderService.sendInitialNotification(
+                await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
                   enquiryData,
                   token,
                   platform
@@ -354,23 +354,6 @@ export class EnquiryStageUpdateService {
                   error.stack
                 );
               }
-
-              // ================================================================
-              // STEP 4: Create reminder records for recurring reminders
-              // ================================================================
-              this.loggerService.log(`Creating reminder records for future reminders...`);
-              
-              try {
-                await this.referralReminderService.createReminderRecords(enquiryData);
-                this.loggerService.log(`Reminder records created successfully`);
-              } catch (error) {
-                this.loggerService.error(
-                  `Error creating reminder records: ${error.message}`,
-                  error.stack
-                );
-              }
-
-              this.loggerService.log(`Referral notification system initialized for enquiry: ${enquiryData.enquiry_number}`);
               
             } catch (error) {
               console.error('Error in admission/referral notification flow:', error);

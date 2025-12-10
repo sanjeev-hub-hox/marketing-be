@@ -23,6 +23,7 @@ import { ReminderRepository } from '../referralReminder/referralReminder.reposit
 import { ReminderStatus } from '../referralReminder/referralReminder.schema';
 import { referralReminderConfig } from '../../config/referral-reminder.config';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
+import { NotificationService } from '../../global/notification.service';
 
 @Injectable()
 export class CronService {
@@ -35,6 +36,7 @@ export class CronService {
     private referralReminderService: ReferralReminderService,
     private reminderRepository: ReminderRepository,
     private kafkaProducer: KafkaProducerService,
+    private notificationService: NotificationService,
   ) {}
 
   async getDefaultCompetencyTestWorkflow(): Promise<WorkflowActivities> {
@@ -114,6 +116,10 @@ export class CronService {
 
       console.log(`[CRON] Found ${dueReminders.length} due reminders`);
 
+      // Get token for notification service (you may need to adjust this based on your auth setup)
+      const token = ''; // Add logic to get token if needed
+      const platform = 'web';
+
       for (const reminder of dueReminders) {
         try {
           // Check if max reminders reached
@@ -124,20 +130,26 @@ export class CronService {
             continue;
           }
 
-          // Send to Kafka for async processing
-          await this.kafkaProducer.sendMessage(
-            referralReminderConfig.kafkaTopic || 'referral-reminders',
+          // Send notification via communication module (includes both email and SMS)
+          const notificationResult = await this.notificationService.sendNotification(
             {
-              reminder_id: reminder._id.toString(),
-              enquiry_id: reminder.enquiry_id.toString(),
-              enquiry_number: reminder.enquiry_number,
-              recipient_type: reminder.recipient_type,
-              recipient_email: reminder.recipient_email,
-              recipient_phone: reminder.recipient_phone,
-              recipient_name: reminder.recipient_name,
-              verification_url: reminder.referral_details.verification_url,
-              reminder_count: reminder.reminder_count,
-            }
+              slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
+              employee_ids: [],
+              global_ids: [],
+              mail_to: [reminder.recipient_email],
+              sms_to: [reminder.recipient_phone.toString().slice(-10)], // Last 10 digits for SMS
+              param: {
+                recipientType: reminder.recipient_type === 'parent' ? 'Parent' : 'Referrer',
+                recipientName: reminder.recipient_name,
+                referrerName: reminder.referral_details.referrer_name || reminder.recipient_name,
+                verificationUrl: reminder.referral_details.verification_url,
+                studentName: reminder.referral_details.referred_name || '',
+                enquiryId: reminder.enquiry_number,
+                reminderCount: reminder.reminder_count + 1,
+              },
+            },
+            token,
+            platform
           );
 
           // Update reminder record
@@ -148,7 +160,10 @@ export class CronService {
               now, 
               referralReminderConfig.frequency
             ),
-            $push: { sent_timestamps: now },
+            $push: { 
+              sent_timestamps: now,
+              ...(notificationResult ? {} : { error_logs: 'Notification service returned false' })
+            },
           });
 
           // Mark as completed if max reached
@@ -158,7 +173,7 @@ export class CronService {
             });
           }
 
-          console.log(`[CRON] Processed reminder for ${reminder.recipient_email}`);
+          console.log(`[CRON] Processed reminder for ${reminder.recipient_email} (SMS: ${reminder.recipient_phone})`);
         } catch (error) {
           console.error(`[CRON] Error processing reminder ${reminder._id}:`, error);
           await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
