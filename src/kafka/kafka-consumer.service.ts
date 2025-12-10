@@ -2,9 +2,10 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Kafka, Consumer, Admin } from 'kafkajs';
 import { NotificationService } from '../global/notification.service';
-import { VerificationTrackerService } from '../feature/referralReminder/verificationTracker.service';
+import { ReminderRepository } from '../feature/referralReminder/referralReminder.repository';
+import { ReminderStatus } from '../feature/referralReminder/referralReminder.schema';
+import { Types } from 'mongoose';
 import { referralReminderConfig } from '../config/referral-reminder.config';
-import { ReminderMessage, VerificationMessage } from '../feature/referralReminder/referralReminder.types';
 
 @Injectable()
 export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
@@ -12,24 +13,13 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
   private consumer: Consumer;
   private admin: Admin;
   private isConnected = false;
-  private processedMessages: Set<string> = new Set();
-  private messageQueue: ReminderMessage[] = [];
-  private pollingInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private configService: ConfigService,
     private notificationService: NotificationService,
-    private verificationTracker: VerificationTrackerService,
+    private reminderRepository: ReminderRepository,
   ) {
-    const kafkaUrl = this.configService.get('KAFKA_HOST_URL');
-    const brokers = kafkaUrl ? kafkaUrl.split(',') : [];
-    
-    if (brokers.length === 0) {
-      console.log('[KAFKA CONSUMER] No Kafka brokers configured');
-      return;
-    }
-
-    console.log('[KAFKA CONSUMER] Initializing with brokers:', brokers);
+    const brokers = this.configService.get('KAFKA_HOST_URL')?.split(',') || ['localhost:9092'];
     
     this.kafka = new Kafka({
       clientId: this.configService.get('KAFKA_CLIENT_ID') || 'marketing-service-consumer',
@@ -53,211 +43,136 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     try {
+      // Don't start if Kafka is not configured or disabled
       if (!referralReminderConfig.enabled) {
-        console.log('[KAFKA CONSUMER] Referral reminder system is disabled');
+        console.log('[KAFKA CONSUMER] Referral reminder system is disabled, skipping consumer initialization');
         return;
       }
 
       const kafkaUrl = this.configService.get('KAFKA_HOST_URL');
-      if (!kafkaUrl) {
-        console.log('[KAFKA CONSUMER] KAFKA_HOST_URL not configured, skipping initialization');
+      if (!kafkaUrl || kafkaUrl === 'localhost:9092') {
+        console.log('[KAFKA CONSUMER] Kafka not configured for this environment, skipping consumer initialization');
         return;
       }
 
-      console.log('[KAFKA CONSUMER] Connecting to Kafka at:', kafkaUrl);
+      console.log('[KAFKA CONSUMER] Connecting to Kafka...');
       await this.consumer.connect();
-      console.log('[KAFKA CONSUMER] ✅ Connected successfully');
+      console.log('[KAFKA CONSUMER] Connected successfully');
 
-      await this.ensureTopicsExist([
-        referralReminderConfig.kafkaTopic,
-        referralReminderConfig.verificationTopic
-      ]);
+      // Create topic if it doesn't exist
+      const topicName = referralReminderConfig.kafkaTopic;
+      await this.ensureTopicExists(topicName);
 
+      // Subscribe to topic
       await this.consumer.subscribe({ 
-        topics: [
-          referralReminderConfig.kafkaTopic,
-          referralReminderConfig.verificationTopic
-        ],
+        topic: topicName,
         fromBeginning: false 
       });
-      console.log('[KAFKA CONSUMER] ✅ Subscribed to topics:', [
-        referralReminderConfig.kafkaTopic,
-        referralReminderConfig.verificationTopic
-      ]);
+      console.log(`[KAFKA CONSUMER] Subscribed to topic: ${topicName}`);
 
+      // Start consuming messages
       await this.consumer.run({
         eachMessage: async ({ topic, partition, message }) => {
           try {
             const data = JSON.parse(message.value.toString());
+            console.log(`[KAFKA CONSUMER] Processing message for enquiry: ${data.enquiry_number}`);
             
-            console.log(`[KAFKA CONSUMER] 📨 Received message from topic: ${topic}`);
-            
-            if (topic === referralReminderConfig.kafkaTopic) {
-              await this.processReminderMessage(data);
-            } else if (topic === referralReminderConfig.verificationTopic) {
-              await this.processVerificationMessage(data);
-            }
+            await this.processReminderMessage(data);
           } catch (error) {
-            console.error('[KAFKA CONSUMER] ❌ Error processing message:', error.message);
+            console.error('[KAFKA CONSUMER] Error processing message:', error);
           }
         },
       });
 
       this.isConnected = true;
-      console.log('[KAFKA CONSUMER] ✅ Consumer is running and listening for messages');
-      this.startMessagePolling();
+      console.log('[KAFKA CONSUMER] Consumer is running');
     } catch (error) {
-      console.error('[KAFKA CONSUMER] ❌ Failed to initialize:', error.message);
-    }
-
-  }
-
-  private startMessagePolling(): void {
-    console.log('[KAFKA CONSUMER] Starting message polling every 30 seconds');
-    
-    this.pollingInterval = setInterval(() => {
-      this.processQueuedMessages();
-    }, 30000); // Poll every 30 seconds
-  }
-
-  private async processQueuedMessages(): Promise<void> {
-    if (this.messageQueue.length === 0) {
-      return;
-    }
-
-    console.log(`[KAFKA CONSUMER] 🔄 Processing ${this.messageQueue.length} queued messages`);
-    
-    const now = new Date();
-    const messagesToProcess = [];
-    const messagesToKeep = [];
-
-    // Separate messages that are ready vs still in future
-    for (const message of this.messageQueue) {
-      const scheduledDate = new Date(message.scheduledFor);
-      
-      if (scheduledDate <= now) {
-        messagesToProcess.push(message);
-      } else {
-        messagesToKeep.push(message);
-      }
-    }
-
-    // Update queue
-    this.messageQueue = messagesToKeep;
-
-    // Process ready messages
-    for (const message of messagesToProcess) {
-      await this.processReminderMessage(message);
-    }
-    
-    if (messagesToProcess.length > 0) {
-      console.log(`[KAFKA CONSUMER] ✅ Processed ${messagesToProcess.length} messages. ${this.messageQueue.length} still in queue`);
+      console.error('[KAFKA CONSUMER] Failed to initialize:', error);
+      // Don't throw - allow app to start even if Kafka fails
     }
   }
 
-  async onModuleDestroy() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      console.log('[KAFKA CONSUMER] Stopped message polling');
-    }
-    
-    if (this.isConnected) {
-      await this.consumer.disconnect();
-      console.log('[KAFKA CONSUMER] Disconnected');
-    }
-  }
-
-  
-
-  async ensureTopicsExist(topics: string[]): Promise<void> {
+  async ensureTopicExists(topicName: string): Promise<void> {
     try {
       await this.admin.connect();
       
-      const existingTopics = await this.admin.listTopics();
-      const topicsToCreate = topics.filter(t => !existingTopics.includes(t));
+      const topics = await this.admin.listTopics();
       
-      if (topicsToCreate.length > 0) {
-        console.log(`[KAFKA CONSUMER] Creating topics:`, topicsToCreate);
+      if (!topics.includes(topicName)) {
+        console.log(`[KAFKA CONSUMER] Topic ${topicName} does not exist, creating...`);
         
         await this.admin.createTopics({
-          topics: topicsToCreate.map(topic => ({
-            topic,
+          topics: [{
+            topic: topicName,
             numPartitions: 3,
             replicationFactor: 1,
-          })),
+          }],
         });
         
-        console.log('[KAFKA CONSUMER] ✅ Topics created successfully');
+        console.log(`[KAFKA CONSUMER] Topic ${topicName} created successfully`);
       } else {
-        console.log('[KAFKA CONSUMER] ✅ All topics already exist');
+        console.log(`[KAFKA CONSUMER] Topic ${topicName} already exists`);
       }
       
       await this.admin.disconnect();
     } catch (error) {
-      console.error('[KAFKA CONSUMER] ❌ Error ensuring topics exist:', error.message);
+      console.error('[KAFKA CONSUMER] Error ensuring topic exists:', error);
       await this.admin.disconnect();
+      throw error;
     }
   }
 
-  async processReminderMessage(data: ReminderMessage): Promise<void> {
+  async processReminderMessage(data: any): Promise<void> {
     try {
-      // Deduplication check
-      if (this.processedMessages.has(data.messageId)) {
-        console.log(`[KAFKA CONSUMER] ⏭️ Message ${data.messageId} already processed, skipping`);
-        return;
-      }
-
-      // Check if already verified
-      if (this.verificationTracker.isVerified(data.enquiryId, data.recipientType)) {
-        console.log(`[KAFKA CONSUMER] ✅ Enquiry ${data.enquiryId} already verified by ${data.recipientType}, skipping`);
-        this.processedMessages.add(data.messageId);
-        return;
-      }
-
-      console.log(`[KAFKA CONSUMER] 📧 Sending reminder ${data.reminderCount}/${data.maxReminders} to ${data.recipientEmail}`);
-
-      // Send notification
+      // Send actual notification
       const result = await this.notificationService.sendNotification(
         {
           slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
           employee_ids: [],
           global_ids: [],
-          mail_to: [data.recipientEmail],
-          sms_to: [data.recipientPhone.toString().slice(-10)],
+          mail_to: [data.recipient_email],
+          sms_to: [data.recipient_phone.toString().slice(-10)],
           param: {
-            recipientType: data.recipientType === 'parent' ? 'Parent' : 'Referrer',
-            recipientName: data.recipientName,
-            referrerName: data.referrerName || data.recipientName,
-            verificationUrl: data.verificationUrl,
-            studentName: data.referredName || '',
-            enquiryId: data.enquiryNumber,
-            reminderCount: data.reminderCount,
-            maxReminders: data.maxReminders,
+            recipientType: data.recipient_type === 'parent' ? 'Parent' : 'Referrer',
+            recipientName: data.recipient_name,
+            verificationUrl: data.verification_url,
+            reminderCount: data.reminder_count + 1,
           },
         },
-        '',
-        'web',
+        '', // token
+        'web', // platform
       );
 
+      // Update status on success
       if (result) {
-        this.processedMessages.add(data.messageId);
-        console.log(`[KAFKA CONSUMER] ✅ Successfully sent reminder to ${data.recipientEmail} (Email + SMS)`);
+        await this.reminderRepository.updateById(
+          new Types.ObjectId(data.reminder_id),
+          {
+            status: ReminderStatus.SENT,
+          }
+        );
+        console.log(`[KAFKA CONSUMER] Successfully sent reminder to ${data.recipient_email}`);
+      } else {
+        throw new Error('Notification service returned false');
       }
     } catch (error) {
-      console.error(`[KAFKA CONSUMER] ❌ Error processing reminder:`, error.message);
+      console.error(`[KAFKA CONSUMER] Error processing reminder for ${data.recipient_email}:`, error);
+      
+      // Update with error
+      await this.reminderRepository.updateById(
+        new Types.ObjectId(data.reminder_id),
+        {
+          status: ReminderStatus.FAILED,
+          $push: { error_logs: error.message },
+        }
+      );
     }
   }
 
-  async processVerificationMessage(data: VerificationMessage): Promise<void> {
-    try {
-      this.verificationTracker.markAsVerified(data.enquiryId, data.verifiedBy);
-      console.log(`[KAFKA CONSUMER] ✅ Verification processed for enquiry ${data.enquiryId} by ${data.verifiedBy}`);
-    } catch (error) {
-      console.error(`[KAFKA CONSUMER] ❌ Error processing verification:`, error.message);
+  async onModuleDestroy() {
+    if (this.isConnected) {
+      await this.consumer.disconnect();
+      console.log('[KAFKA CONSUMER] Disconnected');
     }
-  }
-
-  isConsumerConnected(): boolean {
-    return this.isConnected;
   }
 }

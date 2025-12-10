@@ -23,7 +23,6 @@ import { ReminderRepository } from '../referralReminder/referralReminder.reposit
 import { ReminderStatus } from '../referralReminder/referralReminder.schema';
 import { referralReminderConfig } from '../../config/referral-reminder.config';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
-import { NotificationService } from '../../global/notification.service';
 
 @Injectable()
 export class CronService {
@@ -36,7 +35,6 @@ export class CronService {
     private referralReminderService: ReferralReminderService,
     private reminderRepository: ReminderRepository,
     private kafkaProducer: KafkaProducerService,
-    private notificationService: NotificationService,
   ) {}
 
   async getDefaultCompetencyTestWorkflow(): Promise<WorkflowActivities> {
@@ -95,18 +93,14 @@ export class CronService {
     return nextDate;
   }
 
-  /**
-   * FIXED: Referral Reminder Cron - Runs every 10 minutes
-   * Changed from 4 hours to 10 minutes for testing
-   */
-  @Cron('*/10 * * * *') // Every 10 minutes
+  @Cron('0 */4 * * *') // Every 4 hours
   async processReferralReminders(): Promise<void> {
     if (!referralReminderConfig.enabled) {
       console.log('[CRON] Referral reminder system is disabled');
       return;
     }
 
-    console.log('[CRON] Starting referral reminder job at', new Date().toISOString());
+    console.log('[CRON] Starting referral reminder job');
 
     try {
       const now = new Date();
@@ -120,76 +114,51 @@ export class CronService {
 
       console.log(`[CRON] Found ${dueReminders.length} due reminders`);
 
-      // Get token for notification service
-      const token = ''; // Token is handled in notification service
-      const platform = 'web';
-
       for (const reminder of dueReminders) {
         try {
-          console.log(`[CRON] Processing reminder for ${reminder.recipient_email}`);
-
           // Check if max reminders reached
           if (reminder.reminder_count >= reminder.max_reminders) {
-            console.log(`[CRON] Max reminders reached for ${reminder.recipient_email}`);
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
             continue;
           }
 
-          // Send notification via communication module (includes both email and SMS)
-          const notificationResult = await this.notificationService.sendNotification(
+          // Send to Kafka for async processing
+          await this.kafkaProducer.sendMessage(
+            referralReminderConfig.kafkaTopic || 'referral-reminders',
             {
-              slug: 'Marketing related-Others-Email-Wed Dec 03 2025 14:36:19 GMT+0000 (Coordinated Universal Time)',
-              employee_ids: [],
-              global_ids: [],
-              mail_to: [reminder.recipient_email],
-              sms_to: [reminder.recipient_phone.toString().slice(-10)], // Last 10 digits for SMS
-              param: {
-                recipientType: reminder.recipient_type === 'parent' ? 'Parent' : 'Referrer',
-                recipientName: reminder.recipient_name,
-                referrerName: reminder.referral_details?.referrer_name || reminder.recipient_name,
-                verificationUrl: reminder.referral_details?.verification_url || '',
-                studentName: reminder.referral_details?.referred_name || '',
-                enquiryId: reminder.enquiry_number,
-                reminderCount: reminder.reminder_count + 1,
-              },
-            },
-            token,
-            platform
+              reminder_id: reminder._id.toString(),
+              enquiry_id: reminder.enquiry_id.toString(),
+              enquiry_number: reminder.enquiry_number,
+              recipient_type: reminder.recipient_type,
+              recipient_email: reminder.recipient_email,
+              recipient_phone: reminder.recipient_phone,
+              recipient_name: reminder.recipient_name,
+              verification_url: reminder.referral_details.verification_url,
+              reminder_count: reminder.reminder_count,
+            }
           );
 
-          console.log(`[CRON] Notification result for ${reminder.recipient_email}:`, notificationResult);
-
           // Update reminder record
-          const updateData: any = {
+          await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
             reminder_count: reminder.reminder_count + 1,
             last_sent_at: now,
             next_scheduled_at: this.calculateNextSchedule(
               now, 
               referralReminderConfig.frequency
             ),
-            $push: { 
-              sent_timestamps: now,
-            },
-          };
-
-          // Add error log if notification failed
-          if (!notificationResult) {
-            updateData.$push.error_logs = 'Notification service returned false';
-          }
-
-          await this.reminderRepository.updateById(reminder._id as Types.ObjectId, updateData);
+            $push: { sent_timestamps: now },
+          });
 
           // Mark as completed if max reached
           if (reminder.reminder_count + 1 >= reminder.max_reminders) {
             await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
               status: ReminderStatus.COMPLETED,
             });
-            console.log(`[CRON] Marked reminder as completed for ${reminder.recipient_email}`);
           }
 
-          console.log(`[CRON] Successfully processed reminder for ${reminder.recipient_email} (SMS: ${reminder.recipient_phone})`);
+          console.log(`[CRON] Processed reminder for ${reminder.recipient_email}`);
         } catch (error) {
           console.error(`[CRON] Error processing reminder ${reminder._id}:`, error);
           await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
@@ -198,7 +167,7 @@ export class CronService {
         }
       }
 
-      console.log(`[CRON] Referral reminder job completed at`, new Date().toISOString());
+      console.log(`[CRON] Referral reminder job completed`);
     } catch (error) {
       console.error(`[CRON] Error in referral reminder job:`, error);
     }

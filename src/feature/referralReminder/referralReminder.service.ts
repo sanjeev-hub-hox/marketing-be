@@ -1,16 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Types } from 'mongoose';
+import { referralReminderConfig } from '../../config/referral-reminder.config';
 import { LoggerService } from '../../utils';
 import { NotificationService } from '../../global/notification.service';
 import { KafkaProducerService } from '../../kafka/kafka-producer.service';
-import { VerificationTrackerService } from './verificationTracker.service';
-import { referralReminderConfig } from '../../config/referral-reminder.config';
-import { 
-  ReminderMessage, 
-  VerificationMessage, 
-  RecipientInfo,
-  VerificationStatus 
-} from './referralReminder.types';
+import { EnquiryRepository } from '../enquiry/enquiry.repository';
+import { ReminderRepository } from './referralReminder.repository';
+import { ReminderStatus, ReminderRecipientType } from './referralReminder.schema';
+
+interface ReminderRecipient {
+  type: 'parent' | 'referrer';
+  email: string;
+  phone: string;
+  name: string;
+  verificationUrl: string;
+  referrerName?: string;
+  referredName?: string;
+}
 
 @Injectable()
 export class ReferralReminderService {
@@ -19,134 +26,35 @@ export class ReferralReminderService {
     private readonly notificationService: NotificationService,
     private readonly configService: ConfigService,
     private readonly loggerService: LoggerService,
-    private readonly verificationTracker: VerificationTrackerService,
+    private readonly enquiryRepository: EnquiryRepository,
+    private readonly reminderRepository: ReminderRepository,
   ) {}
 
-  private calculateNextSchedule(startDate: Date, hoursToAdd: number): Date {
+  /**
+   * Calculate next scheduled date based on frequency
+   */
+  private calculateNextSchedule(startDate: Date, frequency: number): Date {
     const nextDate = new Date(startDate);
-    nextDate.setHours(nextDate.getHours() + hoursToAdd);
+    const hoursInterval = 24 / frequency; // frequency = reminders per day
+    nextDate.setHours(nextDate.getHours() + hoursInterval);
     return nextDate;
   }
 
-  async sendInitialNotificationAndScheduleReminders(
-    enquiryData: any,
-    token: string,
-    platform: string,
-  ): Promise<void> {
-    try {
-      if (!this.kafkaProducer.isProducerConnected()) {
-        this.loggerService.log('Kafka producer not connected, cannot schedule reminders');
-        return;
-      }
+  /**
+   * Get all recipients (parent + referrer)
+   */
+  private getAllRecipients(enquiryData: any, baseUrl: string): ReminderRecipient[] {
+    const recipients: ReminderRecipient[] = [];
 
-      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
-      const recipients = this.getAllRecipients(enquiryData, baseUrl);
-      const config = referralReminderConfig;
-
-      this.loggerService.log(`[REFERRAL] 📧 Sending initial notifications to ${recipients.length} recipients`);
-
-      for (const recipient of recipients) {
-        await this.sendNotification(recipient, enquiryData, token, platform);
-      }
-
-      this.loggerService.log(`[REFERRAL] ✅ Initial notifications sent`);
-
-      const maxReminders = config.frequency * config.duration;
-      const hoursInterval = 24 / config.frequency;
-      const startDate = new Date();
-
-      let totalMessagesScheduled = 0;
-
-      for (const recipient of recipients) {
-        this.loggerService.log(`[REFERRAL] 📅 Scheduling ${maxReminders} reminders for ${recipient.type}: ${recipient.email}`);
-
-        for (let i = 1; i <= maxReminders; i++) {
-          const scheduledDate = this.calculateNextSchedule(
-            startDate,
-            hoursInterval * i
-          );
-
-          const message: ReminderMessage = {
-            messageId: `${enquiryData._id}-${recipient.type}-${i}-${Date.now()}`,
-            enquiryId: enquiryData._id.toString(),
-            enquiryNumber: enquiryData.enquiry_number,
-            recipientType: recipient.type,
-            recipientEmail: recipient.email,
-            recipientPhone: recipient.phone.toString(),
-            recipientName: recipient.name,
-            verificationUrl: recipient.verificationUrl,
-            referrerName: recipient.referrerName,
-            referredName: recipient.referredName,
-            reminderCount: i,
-            maxReminders: maxReminders,
-            scheduledFor: scheduledDate.toISOString(),
-            createdAt: new Date().toISOString(),
-          };
-
-          const sent = await this.kafkaProducer.sendMessage(
-            config.kafkaTopic,
-            message
-          );
-
-          if (sent) {
-            totalMessagesScheduled++;
-          }
-        }
-      }
-
-      this.loggerService.log(
-        `[REFERRAL] ✅ Scheduled ${totalMessagesScheduled} reminder messages for enquiry: ${enquiryData.enquiry_number}`,
-      );
-    } catch (error) {
-      this.loggerService.error(
-        `[REFERRAL] ❌ Error scheduling reminders: ${error.message}`,
-        error.stack,
-      );
-    }
-  }
-
-  async handleVerification(
-    enquiryId: string,
-    recipientType: 'parent' | 'referrer',
-  ): Promise<void> {
-    try {
-      this.verificationTracker.markAsVerified(enquiryId, recipientType);
-
-      const verificationMessage: VerificationMessage = {
-        enquiryId,
-        verifiedBy: recipientType,
-        verifiedAt: new Date().toISOString(),
-      };
-
-      await this.kafkaProducer.sendMessage(
-        referralReminderConfig.verificationTopic,
-        verificationMessage
-      );
-
-      this.loggerService.log(
-        `[REFERRAL] ✅ Verification recorded for enquiry ${enquiryId} by ${recipientType}`,
-      );
-    } catch (error) {
-      this.loggerService.error(
-        `[REFERRAL] ❌ Error handling verification: ${error.message}`,
-        error.stack,
-      );
-    }
-  }
-
-  getVerificationStatus(enquiryId: string): VerificationStatus {
-    return this.verificationTracker.getVerificationStatus(enquiryId);
-  }
-
-  private getAllRecipients(enquiryData: any, baseUrl: string): RecipientInfo[] {
-    const recipients: RecipientInfo[] = [];
-    const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
-
+    // Get parent details
     const parentType = enquiryData?.other_details?.parent_type || 'Father';
     const parentDetails = this.getParentDetails(enquiryData, parentType);
+    const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
+    // Add parent recipient
     if (parentDetails?.email && parentDetails?.mobile) {
       const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referral`;
+      
       recipients.push({
         type: 'parent',
         email: parentDetails.email,
@@ -157,6 +65,7 @@ export class ReferralReminderService {
       });
     }
 
+    // Add referrer recipient
     const referrerRecipient = this.getReferrerRecipient(enquiryData, baseUrl);
     if (referrerRecipient) {
       recipients.push(referrerRecipient);
@@ -165,8 +74,91 @@ export class ReferralReminderService {
     return recipients;
   }
 
+  /**
+   * Create reminder records in database
+   */
+  async createReminderRecords(enquiryData: any): Promise<void> {
+    try {
+      const config = referralReminderConfig;
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + config.duration);
+      
+      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
+      const recipients = this.getAllRecipients(enquiryData, baseUrl);
+
+      // Create database records for tracking
+      for (const recipient of recipients) {
+        await this.reminderRepository.create({
+          enquiry_id: enquiryData._id,
+          enquiry_number: enquiryData.enquiry_number,
+          recipient_type: recipient.type as any,
+          recipient_email: recipient.email,
+          recipient_phone: recipient.phone,
+          recipient_name: recipient.name,
+          reminder_count: 0,
+          max_reminders: config.frequency * config.duration,
+          total_days: config.duration,
+          status: ReminderStatus.PENDING,
+          start_date: startDate,
+          end_date: endDate,
+          next_scheduled_at: this.calculateNextSchedule(startDate, config.frequency),
+          referral_details: {
+            referrer_name: recipient.referrerName,
+            referred_name: recipient.referredName,
+            verification_url: recipient.verificationUrl,
+          },
+        });
+      }
+
+      this.loggerService.log(
+        `Created reminder records for enquiry: ${enquiryData.enquiry_number}`,
+      );
+    } catch (error) {
+      this.loggerService.error(
+        `Error creating reminder records: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Send INITIAL notification when admission happens
+   * This is separate from recurring reminders
+  */
+  async sendInitialNotification(
+    enquiryData: any,
+    token: string,
+    platform: string,
+  ): Promise<void> {
+    try {
+      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
+                'https://preprod-marketing-hubbleorion.hubblehox.com';
+      const recipients = this.getAllRecipients(enquiryData, baseUrl);
+
+      this.loggerService.log(`Sending initial notifications to ${recipients.length} recipients`);
+
+      // Send initial notification to all recipients
+      for (const recipient of recipients) {
+        await this.sendNotification(recipient, enquiryData, token, platform);
+      }
+
+      this.loggerService.log(
+        `Initial referral notifications sent for enquiry: ${enquiryData.enquiry_number}`,
+      );
+    } catch (error) {
+      this.loggerService.error(
+        `Error sending initial notifications: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Send notification to a recipient
+  */
   private async sendNotification(
-    recipient: RecipientInfo,
+    recipient: ReminderRecipient,
     enquiryData: any,
     token: string,
     platform: string,
@@ -193,19 +185,23 @@ export class ReferralReminderService {
       );
 
       this.loggerService.log(
-        `[REFERRAL] ✅ Notification sent to ${recipient.type}: ${recipient.email}`,
+        `Notification sent to ${recipient.type}: ${recipient.email}`,
       );
     } catch (error) {
       this.loggerService.error(
-        `[REFERRAL] ❌ Error sending notification to ${recipient.email}: ${error.message}`,
+        `Error sending notification to ${recipient.email}: ${error.message}`,
         error.stack,
       );
     }
   }
 
-  private getReferrerRecipient(enquiryData: any, baseUrl: string): RecipientInfo | null {
+  /**
+   * Get referrer recipient based on referral source type
+   */
+  private getReferrerRecipient(enquiryData: any, baseUrl: string): ReminderRecipient | null {
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
+    // Employee Referral
     if (enquiryData.other_details?.enquiry_employee_source_id) {
       const email = enquiryData.other_details.enquiry_employee_source_value;
       const phone = enquiryData.other_details.enquiry_employee_source_number;
@@ -223,6 +219,7 @@ export class ReferralReminderService {
       }
     }
 
+    // Preschool Referral
     if (enquiryData.enquiry_school_source?.id) {
       const email = enquiryData.enquiry_school_source.spoc_email;
       const phone = enquiryData.enquiry_school_source.spoc_mobile_no;
@@ -240,6 +237,7 @@ export class ReferralReminderService {
       }
     }
 
+    // Corporate Referral
     if (enquiryData.other_details?.enquiry_corporate_source_id) {
       const email = enquiryData.other_details.enquiry_corporate_source_email;
       const phone = enquiryData.other_details.enquiry_corporate_source_number;
@@ -260,6 +258,9 @@ export class ReferralReminderService {
     return null;
   }
 
+  /**
+   * Get parent details helper
+   */
   private getParentDetails(enquiryData: any, parentType: string): any {
     switch (parentType) {
       case 'Father':
