@@ -206,12 +206,14 @@ export class ReferralReminderService {
   private getReferrerRecipient(enquiryData: any, baseUrl: string): RecipientInfo | null {
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
+    // Check for Employee Referral
     if (enquiryData.other_details?.enquiry_employee_source_id) {
       const email = enquiryData.other_details.enquiry_employee_source_value;
       const phone = enquiryData.other_details.enquiry_employee_source_number;
       const name = enquiryData.other_details.enquiry_employee_source_name || 'Employee';
       
       if (email && phone) {
+        this.loggerService.log(`[REFERRAL] Found employee referrer: ${email}`);
         return {
           type: 'referrer',
           email,
@@ -223,12 +225,14 @@ export class ReferralReminderService {
       }
     }
 
+    // Check for Pre-School Referral (stored in enquiry_school_source at root level)
     if (enquiryData.enquiry_school_source?.id) {
       const email = enquiryData.enquiry_school_source.spoc_email;
       const phone = enquiryData.enquiry_school_source.spoc_mobile_no;
       const name = enquiryData.enquiry_school_source.value || 'Preschool';
       
       if (email && phone) {
+        this.loggerService.log(`[REFERRAL] Found preschool referrer: ${email}`);
         return {
           type: 'referrer',
           email,
@@ -240,12 +244,33 @@ export class ReferralReminderService {
       }
     }
 
-    if (enquiryData.other_details?.enquiry_corporate_source_id) {
-      const email = enquiryData.other_details.enquiry_corporate_source_email;
-      const phone = enquiryData.other_details.enquiry_corporate_source_number;
-      const name = enquiryData.other_details.enquiry_corporate_source_name || 'Corporate';
+    // Also check in other_details for preschool (fallback)
+    if (enquiryData.other_details?.enquiry_school_source_id) {
+      const email = enquiryData.other_details.enquiry_school_source_email;
+      const phone = enquiryData.other_details.enquiry_school_source_number;
+      const name = enquiryData.other_details.enquiry_school_source_value || 'Preschool';
       
       if (email && phone) {
+        this.loggerService.log(`[REFERRAL] Found preschool referrer in other_details: ${email}`);
+        return {
+          type: 'referrer',
+          email,
+          phone,
+          name,
+          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`,
+          referredName: studentName,
+        };
+      }
+    }
+
+    // Check for Corporate Referral (stored in enquiry_corporate_source at root level)
+    if (enquiryData.enquiry_corporate_source?.id) {
+      const email = enquiryData.enquiry_corporate_source.spoc_email;
+      const phone = enquiryData.enquiry_corporate_source.spoc_mobile_no;
+      const name = enquiryData.enquiry_corporate_source.value || 'Corporate';
+      
+      if (email && phone) {
+        this.loggerService.log(`[REFERRAL] Found corporate referrer: ${email}`);
         return {
           type: 'referrer',
           email,
@@ -257,6 +282,26 @@ export class ReferralReminderService {
       }
     }
 
+    // Also check in other_details for corporate (fallback)
+    if (enquiryData.other_details?.enquiry_corporate_source_id) {
+      const email = enquiryData.other_details.enquiry_corporate_source_email;
+      const phone = enquiryData.other_details.enquiry_corporate_source_number;
+      const name = enquiryData.other_details.enquiry_corporate_source_value || 'Corporate';
+      
+      if (email && phone) {
+        this.loggerService.log(`[REFERRAL] Found corporate referrer in other_details: ${email}`);
+        return {
+          type: 'referrer',
+          email,
+          phone,
+          name,
+          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`,
+          referredName: studentName,
+        };
+      }
+    }
+
+    this.loggerService.log(`[REFERRAL] No referrer found for enquiry ${enquiryData._id}`);
     return null;
   }
 
