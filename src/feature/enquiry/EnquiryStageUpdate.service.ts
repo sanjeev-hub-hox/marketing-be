@@ -322,19 +322,30 @@ export class EnquiryStageUpdateService {
                   try {
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                     
-                    const smsMessage = buildSmsMessage(SmsTemplateType.ADMISSION_CONFIRMATION, {
+                    const sendParentSMS = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
                       parentName: parentName,
                       studentName: studentName,
                       schoolName: enquiryData.school_location?.value || 'VIBGYOR',
                       academicYear: enquiryData.academic_year?.value || '',
                     });
 
-                    const smsResult = await this.notificationService.sendDirectSMS(
+                    const sendReferralSMS = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
+                      parentName: parentName,
+                      studentName: studentName,
+                      schoolName: enquiryData.school_location?.value || 'VIBGYOR',
+                      academicYear: enquiryData.academic_year?.value || '',
+                    });
+
+                    const smsParentResult = await this.notificationService.sendDirectSMS(
                       parentPhone.toString(),
-                      smsMessage
+                      sendParentSMS
+                    );
+                    const smsReferralResult = await this.notificationService.sendDirectSMS(
+                      parentPhone.toString(),
+                      sendReferralSMS
                     );
                     
-                    if (smsResult) {
+                    if (smsParentResult) {
                       this.loggerService.log(`✅ Admission SMS sent successfully to ${parentPhone}`);
                     } else {
                       this.loggerService.error(`❌ Failed to send admission SMS to ${parentPhone} - Check SMS gateway IP whitelist`, '');

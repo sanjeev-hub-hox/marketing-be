@@ -95,7 +95,7 @@ export enum ReminderRecipientType {
   REFERRER = 'referrer',
 }
 
-@Schema({ timestamps: true, collection: 'sendreminders' })
+@Schema({ timestamps: true, collection: 'referral' })
 export class SendReminder extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Enquiry', required: true })
   enquiry_id: Types.ObjectId;

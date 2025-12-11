@@ -193,6 +193,7 @@ export class ReferralReminderService {
             verificationUrl: recipient.verificationUrl,
             studentName: recipient.referredName || '',
             enquiryId: enquiryData.enquiry_number,
+            reminderCount: '3',
           },
         },
         token,

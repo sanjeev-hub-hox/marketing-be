@@ -15,8 +15,9 @@ export class ReminderRepository {
     return reminder.save();
   }
 
-  async find(query: any): Promise<SendReminder[]> {
-    return this.reminderModel.find(query).exec();
+  // ✅ Better typed return
+  async find(query: any): Promise<(SendReminder & { _id: Types.ObjectId })[]> {
+    return this.reminderModel.find(query).exec() as any;
   }
 
   async findById(id: Types.ObjectId): Promise<SendReminder> {

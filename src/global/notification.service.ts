@@ -141,23 +141,25 @@ export class NotificationService {
       // Ensure phone number is in correct format (last 10 digits)
       const formattedPhone = phone.toString().slice(-10);
 
+      console.log('message_data_____', message, phone);
+
       const url = `${smsUrl}?APIKey=${smsApiKey}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${formattedPhone}&text=${encodeURIComponent(message)}&route=49`;
 
-      this.logger.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
-      this.logger.log(`[SMS] Message: ${message.substring(0, 100)}...`);
+      console.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
+      console.log(`[SMS] Message: ${message.substring(0, 100)}...`);
 
       const response = await axios.get(url, { timeout: 10000 });
 
-      this.logger.log(`[SMS] Response Status: ${response.status}`);
-      this.logger.log(`[SMS] Response Data: ${JSON.stringify(response.data)}`);
+      console.log(`[SMS] Response Status: ${response.status}`);
+      console.log(`[SMS] Response Data: ${JSON.stringify(response.data)}`);
 
       // Check for common error codes
       if (response.data?.ErrorCode) {
         const errorCode = response.data.ErrorCode;
         const errorMessage = response.data.ErrorMessage;
         
-        this.logger.error(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
-        this.logger.error(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
+        console.log(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
+        console.log(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
         
         // Provide specific error guidance
         switch (errorCode) {

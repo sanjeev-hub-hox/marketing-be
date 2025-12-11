@@ -286,7 +286,7 @@ export class EnquiryCron {
     try {
       console.log('Refreshing admission report cache...');
       const result = await this.enquiryService.enquiryDetailsReport();
-      await this.redisInstance.setData('admission-enquiry-report', result, 720);
+      await this.redisInstance?.setData('admission-enquiry-report', result, 720);
       console.log('admission report cache updated successfully');
     } catch (err) {
       console.log('Error refreshing admission report cache:', err);
