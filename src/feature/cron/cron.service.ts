@@ -22,7 +22,7 @@ import { ReferralReminderService } from '../referralReminder/referralReminder.se
 import { ReminderRepository } from '../referralReminder/referralReminder.repository';
 import { ReminderStatus } from '../referralReminder/referralReminder.schema';
 import { referralReminderConfig } from '../../config/referral-reminder.config';
-import { KafkaProducerService } from '../../kafka/kafka-producer.service';
+// import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { NotificationService } from '../../global/notification.service';
 
 @Injectable()
@@ -35,7 +35,7 @@ export class CronService {
     private configService: ConfigService,
     private referralReminderService: ReferralReminderService,
     private reminderRepository: ReminderRepository,
-    private kafkaProducer: KafkaProducerService,
+    // private kafkaProducer: KafkaProducerService,
     private notificationService: NotificationService,
   ) {}
 

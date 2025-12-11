@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../../utils';
 import { NotificationService } from '../../global/notification.service';
-import { KafkaProducerService } from '../../kafka/kafka-producer.service';
+// import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { VerificationTrackerService } from './verificationTracker.service';
 import { referralReminderConfig } from '../../config/referral-reminder.config';
 import { 
@@ -15,7 +15,7 @@ import {
 @Injectable()
 export class ReferralReminderService {
   constructor(
-    private readonly kafkaProducer: KafkaProducerService,
+    // private readonly kafkaProducer: KafkaProducerService,
     private readonly notificationService: NotificationService,
     private readonly configService: ConfigService,
     private readonly loggerService: LoggerService,
@@ -34,10 +34,10 @@ export class ReferralReminderService {
     platform: string,
   ): Promise<void> {
     try {
-      if (!this.kafkaProducer.isProducerConnected()) {
-        this.loggerService.log('Kafka producer not connected, cannot schedule reminders');
-        return;
-      }
+      // if (!this.kafkaProducer.isProducerConnected()) {
+      //   this.loggerService.log('Kafka producer not connected, cannot schedule reminders');
+      //   return;
+      // }
 
       const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
       const recipients = this.getAllRecipients(enquiryData, baseUrl);
@@ -83,14 +83,14 @@ export class ReferralReminderService {
             createdAt: new Date().toISOString(),
           };
 
-          const sent = await this.kafkaProducer.sendMessage(
-            config.kafkaTopic,
-            message
-          );
+          // const sent = await this.kafkaProducer.sendMessage(
+          //   config.kafkaTopic,
+          //   message
+          // );
 
-          if (sent) {
-            totalMessagesScheduled++;
-          }
+          // if (sent) {
+          //   totalMessagesScheduled++;
+          // }
         }
       }
 
@@ -118,10 +118,10 @@ export class ReferralReminderService {
         verifiedAt: new Date().toISOString(),
       };
 
-      await this.kafkaProducer.sendMessage(
-        referralReminderConfig.verificationTopic,
-        verificationMessage
-      );
+      // await this.kafkaProducer.sendMessage(
+      //   referralReminderConfig.verificationTopic,
+      //   verificationMessage
+      // );
 
       this.loggerService.log(
         `[REFERRAL] ✅ Verification recorded for enquiry ${enquiryId} by ${recipientType}`,

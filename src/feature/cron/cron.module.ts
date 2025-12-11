@@ -11,7 +11,7 @@ import { EnquiryLogSchema } from "../enquiryLog/enquiryLog.schema";
 import { EnquiryTypeRepository } from "../enquiryType/enquiryType.repository";
 import { AxiosService } from "src/global/service";
 import { ReferralReminderModule } from '../referralReminder/referralReminder.module';
-import { KafkaProducerService } from '../../kafka/kafka-producer.service';
+// import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 
 @Module({
   imports: [
@@ -30,7 +30,7 @@ import { KafkaProducerService } from '../../kafka/kafka-producer.service';
     EnquiryLogRepository,
     EnquiryTypeRepository,
     AxiosService,
-    KafkaProducerService,
+    // KafkaProducerService,
   ],
   exports: [CronService]
 })

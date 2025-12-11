@@ -2,8 +2,8 @@ import { Module, forwardRef  } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferralReminderService } from './referralReminder.service';
 import { ReminderRepository } from './referralReminder.repository';
-import { ReferralReminderSchema } from './referralReminder.schema';
-import { KafkaProducerService } from '../../kafka/kafka-producer.service';
+import { SendReminderSchema } from './referralReminder.schema';
+// import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { EnquiryModule } from '../enquiry/enquiry.module';
 import { GlobalModule } from '../../global/global.module';
 import { VerificationTrackerService } from './verificationTracker.service';
@@ -11,7 +11,7 @@ import { VerificationTrackerService } from './verificationTracker.service';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: 'referralReminder', schema: ReferralReminderSchema }
+      { name: 'referralReminder', schema: SendReminderSchema }
     ]),
     forwardRef(() => EnquiryModule),
     GlobalModule,
@@ -19,7 +19,7 @@ import { VerificationTrackerService } from './verificationTracker.service';
   providers: [
     ReferralReminderService,
     ReminderRepository,
-    KafkaProducerService,
+    // KafkaProducerService,
     VerificationTrackerService
   ],
   exports: [ReferralReminderService, ReminderRepository, VerificationTrackerService],

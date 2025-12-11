@@ -44,7 +44,7 @@ import { AuthenticationMiddleware } from './middleware/auth/authentication.middl
 import { AuthorizationMiddlewareFactory } from './middleware/auth/authorizationMiddlewareFactory';
 import { excludedRoutes } from './middleware/auth/authorizedRoutes';
 import { LoggerService, ResponseService } from './utils';
-import { KafkaModule } from './kafka/kafka.module';
+// import { KafkaModule } from './kafka/kafka.module';
 
 @Global()
 @Module({
@@ -92,7 +92,7 @@ import { KafkaModule } from './kafka/kafka.module';
     MyTaskModule,
     ExternalEnquiryModule,
     ExternalEnquiryTypeModule,
-    KafkaModule
+    // KafkaModule
   ],
 
   controllers: [AppController],
