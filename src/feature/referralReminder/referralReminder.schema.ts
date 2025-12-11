@@ -86,9 +86,8 @@ import { Document, Types } from 'mongoose';
 
 export enum ReminderStatus {
   PENDING = 'pending',
-  SENT = 'sent',
-  FAILED = 'failed',
   COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
 }
 
 export enum ReminderRecipientType {
@@ -96,49 +95,58 @@ export enum ReminderRecipientType {
   REFERRER = 'referrer',
 }
 
-@Schema({ timestamps: true, collection: 'sendReminders' })
+@Schema({ timestamps: true, collection: 'sendreminders' })
 export class SendReminder extends Document {
-  @Prop({ required: true, unique: true })
-  messageId: string;
-
   @Prop({ type: Types.ObjectId, ref: 'Enquiry', required: true })
   enquiry_id: Types.ObjectId;
 
   @Prop({ required: true })
   enquiry_number: string;
 
-  @Prop({ required: true, enum: ReminderRecipientType })
+  @Prop({ 
+    required: true, 
+    enum: ReminderRecipientType,
+    type: String 
+  })
   recipient_type: ReminderRecipientType;
 
   @Prop({ required: true })
   recipient_email: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: String }) // ✅ Explicitly set as string
   recipient_phone: string;
 
   @Prop({ required: true })
   recipient_name: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, default: 0 })
   reminder_count: number;
 
   @Prop({ required: true })
   max_reminders: number;
 
-  @Prop({ required: true, default: ReminderStatus.PENDING })
+  @Prop({ 
+    required: true, 
+    default: ReminderStatus.PENDING,
+    enum: ReminderStatus,
+    type: String 
+  })
   status: ReminderStatus;
 
-  @Prop({ type: Date, required: true })
-  scheduled_for: Date;
-
   @Prop({ type: Date })
-  sent_at: Date;
+  last_sent_at: Date;
+
+  @Prop({ type: Date, required: true })
+  next_scheduled_at: Date;
+
+  @Prop({ type: [Date], default: [] })
+  sent_timestamps: Date[];
 
   @Prop({ type: Object })
   referral_details: {
+    verification_url: string;
     referrer_name?: string;
     referred_name?: string;
-    verification_url?: string;
   };
 
   @Prop({ type: [String], default: [] })
@@ -149,12 +157,6 @@ export class SendReminder extends Document {
 
   @Prop({ type: Date })
   verified_at: Date;
-
-  @Prop({ default: 0 })
-  retry_count: number;
-
-  @Prop({ type: Date })
-  last_retry_at: Date;
 }
 
 export const SendReminderSchema = SchemaFactory.createForClass(SendReminder);

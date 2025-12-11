@@ -106,6 +106,7 @@ import { EnquiryStageUpdateService } from './EnquiryStageUpdate.service';
 import { transporter } from './enquiryMailService';
 import { JobShadulerService } from '../jobShaduler/jobShaduler.service';
 // import { AppRegistrationService } from '../registration/app/appRegistration.service';
+import { ReferralReminderService } from '../referralReminder/referralReminder.service';
 @Injectable()
 export class EnquiryService {
   constructor(
@@ -134,6 +135,7 @@ export class EnquiryService {
     private loggerService: LoggerService,
     private csvService: CsvService,
     private emailService: EmailService,
+    private referralReminderService: ReferralReminderService,
     @Inject('REDIS_INSTANCE') private redisInstance: RedisService,
     @InjectQueue('admissionFees') private admissionFeeQueue: Queue,
   ) {
@@ -878,6 +880,8 @@ export class EnquiryService {
       new Types.ObjectId(enquiryId),
       { other_details: updatedDetails }
     );
+
+    await this.referralReminderService.markAsVerified(enquiryId, action);
 
     return { message: `${action} verified successfully.` };
   }
@@ -6330,7 +6334,7 @@ export class EnquiryService {
       },
     );
 
-    const schoolDataIds = schoolDetails.data.schools.map(
+    const schoolDataIds = schoolDetails?.data?.schools?.map(
       (school) => school.school_id,
     );
     console.log('schoolDataIds', new Set(schoolDataIds));

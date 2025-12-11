@@ -1,8 +1,10 @@
+import { ReminderRecipientType } from './referralReminder.schema';
+
 export interface ReminderMessage {
   messageId: string;
   enquiryId: string;
   enquiryNumber: string;
-  recipientType: 'parent' | 'referrer';
+  recipientType: ReminderRecipientType;
   recipientEmail: string;
   recipientPhone: string;
   recipientName: string;
@@ -17,15 +19,15 @@ export interface ReminderMessage {
 
 export interface VerificationMessage {
   enquiryId: string;
-  verifiedBy: 'parent' | 'referrer';
+  verifiedBy: ReminderRecipientType;
   verifiedAt: string;
   ipAddress?: string;
 }
 
 export interface RecipientInfo {
-  type: 'parent' | 'referrer';
+  type: ReminderRecipientType;
   email: string;
-  phone: string | number;
+  phone: string;
   name: string;
   verificationUrl: string;
   referrerName?: string;
