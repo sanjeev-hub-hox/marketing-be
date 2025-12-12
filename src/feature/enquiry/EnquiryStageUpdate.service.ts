@@ -292,6 +292,7 @@ export class EnquiryStageUpdateService {
               const parentEmail = parentDetails?.email;
               const parentPhone = parentDetails?.mobile;
               const parentName = `${parentDetails?.first_name || ''} ${parentDetails?.last_name || ''}`.trim() || parentType;
+              const firstName = `${parentDetails?.first_name}`.trim() || parentType;
               const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
               // ================================================================
@@ -341,7 +342,7 @@ export class EnquiryStageUpdateService {
                       console.log(`URL: ${shortUrl}`);
                       
                       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
-                        parentName: parentName,
+                        parentName: firstName,
                         studentName: studentName,
                         schoolName: enquiryData.school_location?.value || 'VIBGYOR',
                         academicYear: enquiryData.academic_year?.value || '',
