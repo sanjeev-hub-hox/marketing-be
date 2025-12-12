@@ -41,7 +41,7 @@ export class EnquiryCron {
    * This cron job will run every 15 minutes and will process the enquiries where
    * admission process is incomplete i.e the last stage is in progress
    */
-  @Cron('*/15 * * * *', {
+  @Cron('*/3 * * * *', {
     name: 'processIncompleteAdmissionsCron',
     timeZone: 'Asia/Kolkata',
   })

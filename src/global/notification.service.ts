@@ -123,6 +123,13 @@ export class NotificationService {
     }
   }
 
+  async smsGatewayOptions() {
+    return {
+      url: process.env.SMS_URL,
+      key: process.env.SMS_API_KEY,
+    };
+  }
+
   /**
    * Send SMS using direct SMS gateway
    * Fallback method for when notification service is unavailable
@@ -141,54 +148,62 @@ export class NotificationService {
       // Ensure phone number is in correct format (last 10 digits)
       const formattedPhone = phone.toString().slice(-10);
 
-      console.log('message_data_____', message, phone);
+      console.log('message_data_____', message);
+      const options: any = await this.smsGatewayOptions();
+      const encodedMsg = encodeURIComponent(message);
 
-      const url = `${smsUrl}?APIKey=${smsApiKey}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${formattedPhone}&text=${encodeURIComponent(message)}&route=49`;
+
+      console.log('url and key_____',`${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${encodedMsg}&route=49`, options.key);
+      const smsRequest = await fetch(
+        `${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`
+      );
+      const res = await smsRequest.json();
+      console.log('sendSMS_res-',res);
 
       console.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
       console.log(`[SMS] Message: ${message.substring(0, 100)}...`);
 
-      const response = await axios.get(url, { timeout: 10000 });
 
-      console.log(`[SMS] Response Status: ${response.status}`);
-      console.log(`[SMS] Response Data: ${JSON.stringify(response.data)}`);
+
+      // console.log(`[SMS] Response Status: ${response.status}`);
+      // console.log(`[SMS] Response Data: ${JSON.stringify(response.data)}`);
 
       // Check for common error codes
-      if (response.data?.ErrorCode) {
-        const errorCode = response.data.ErrorCode;
-        const errorMessage = response.data.ErrorMessage;
+      // if (data?.ErrorCode) {
+      //   const errorCode = data.ErrorCode;
+      //   const errorMessage = data.ErrorMessage;
         
-        console.log(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
-        console.log(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
+      //   console.log(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
+      //   console.log(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
         
-        // Provide specific error guidance
-        switch (errorCode) {
-          case '11':
-            this.logger.error('[SMS] 🔒 IP ADDRESS RESTRICTION');
-            this.logger.error('[SMS] Solution: Contact your SMS gateway provider to whitelist your server IP');
-            this.logger.error(`[SMS] Your server IP might be visible in the gateway logs or run: curl ifconfig.me`);
-            break;
-          case '12':
-            this.logger.error('[SMS] Invalid API Key');
-            break;
-          case '13':
-            this.logger.error('[SMS] Invalid Phone Number');
-            break;
-          default:
-            this.logger.error(`[SMS] Unknown error code: ${errorCode}`);
-        }
+      //   // Provide specific error guidance
+      //   switch (errorCode) {
+      //     case '11':
+      //       this.logger.error('[SMS] 🔒 IP ADDRESS RESTRICTION');
+      //       this.logger.error('[SMS] Solution: Contact your SMS gateway provider to whitelist your server IP');
+      //       this.logger.error(`[SMS] Your server IP might be visible in the gateway logs or run: curl ifconfig.me`);
+      //       break;
+      //     case '12':
+      //       this.logger.error('[SMS] Invalid API Key');
+      //       break;
+      //     case '13':
+      //       this.logger.error('[SMS] Invalid Phone Number');
+      //       break;
+      //     default:
+      //       this.logger.error(`[SMS] Unknown error code: ${errorCode}`);
+      //   }
         
-        return false;
-      }
+      //   return false;
+      // }
 
-      // Success case
-      if (response.data?.JobId || response.status === 200) {
-        this.logger.log(`[SMS] ✅ SMS sent successfully. JobId: ${response.data?.JobId || 'N/A'}`);
-        return true;
-      }
+      // // Success case
+      // if (data?.JobId) {
+      //   this.logger.log(`[SMS] ✅ SMS sent successfully. JobId: ${data?.JobId || 'N/A'}`);
+      //   return true;
+      // }
 
-      this.logger.warn(`[SMS] ⚠️ Unexpected response format: ${JSON.stringify(response.data)}`);
-      return false;
+      // this.logger.warn(`[SMS] ⚠️ Unexpected response format: ${JSON.stringify(data)}`);
+      // return false;
 
     } catch (error) {
       this.logger.error(`[SMS] ❌ Exception while sending SMS: ${error.message}`);

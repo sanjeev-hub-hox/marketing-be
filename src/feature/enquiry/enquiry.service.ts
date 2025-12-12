@@ -9272,9 +9272,109 @@ export class EnquiryService {
     }
   }
   //! Source Conversion Report - Abhishek
-  async sourceWiseInquiryStatusReport_BA(): Promise<any[]> {
+  async sourceWiseInquiryStatusReport_BA(filters: any = null): Promise<any[]> {
+    // helper to parse DD-MM-YYYY -> Date
+    const toDate = (s?: string | null): Date | null => {
+      if (!s) return null;
+      const str = String(s).trim();
+      if (!str) return null;
+
+      // dd-mm-yyyy
+      const parts = str.split("-");
+      if (parts.length === 3 && parts[0].length <= 2) {
+        const [d, m, y] = parts;
+        const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00.000Z`;
+        const dt = new Date(iso);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      // fallback
+      const dt = new Date(str);
+      return isNaN(dt.getTime()) ? null : dt;
+    };
+    // Build initial matchConditions if filters provided
+    const matchConditions: any = {};
+
+    if (filters) {
+      const { start_date, end_date, filter_by } = filters;
+
+      const startDt = toDate(start_date || null);
+      const endDt = toDate(end_date || null);
+      if (endDt) endDt.setUTCHours(23, 59, 59, 999);
+
+      // Attach Date filter
+      if (startDt || endDt) {
+        matchConditions.enquiry_date = {};
+        if (startDt) matchConditions.enquiry_date.$gte = startDt;
+        if (endDt) matchConditions.enquiry_date.$lte = endDt;
+      }
+
+      // Apply filter_by logic (CC Only, School Only, All)
+      if (filter_by === 'CC Only') {
+        matchConditions['enquiry_mode.value'] = {
+          $in: ['Phone Call', 'Phone Call (IVR) -Toll free', 'Phone Call -School'],
+        };
+      } else if (filter_by === 'School Only') {
+        matchConditions['enquiry_mode.value'] = {
+          $in: ['Walkin', 'Walkin (VMS)'],
+        };
+      }
+
+      // Helper to convert to numbers if possible, else keep strings
+      const buildIn = (arr?: string[]) => {
+        if (!arr || !arr.length) return null;
+        const vals = arr.map((s) => {
+          const n = Number(s);
+          return Number.isNaN(n) ? s : n;
+        });
+        return Array.from(new Set(vals));
+      };
+
+      // Strict matching using fields present in your document sample
+      if (filters.school && filters.school.length) {
+        const v = buildIn(filters.school);
+        matchConditions['school_location.id'] = { $in: v };
+      }
+
+      if (filters.course && filters.course.length) {
+        const v = buildIn(filters.course);
+        matchConditions['course.id'] = { $in: v };
+      }
+
+      if (filters.board && filters.board.length) {
+        const v = buildIn(filters.board);
+        matchConditions['board.id'] = { $in: v };
+      }
+
+      if (filters.grade && filters.grade.length) {
+        const v = buildIn(filters.grade);
+        matchConditions['student_details.grade.id'] = { $in: v };
+      }
+
+      if (filters.stream && filters.stream.length) {
+        const v = buildIn(filters.stream);
+        matchConditions['stream.id'] = { $in: v };
+      }
+
+      if (filters.source && filters.source.length) {
+        const v = buildIn(filters.source);
+        matchConditions['enquiry_source.id'] = { $in: v };
+      }
+
+      if (filters.subSource && filters.subSource.length) {
+        const v = buildIn(filters.subSource);
+        matchConditions['enquiry_sub_source.id'] = { $in: v };
+      }
+    }
+
     // Build aggregation pipeline (lookups + flags + grouping + percentage)
-    const pipeline: any[] = [
+    const pipeline: any[] = [];
+
+    // If matchConditions has keys, push $match stage as the first stage
+    if (Object.keys(matchConditions).length) {
+      pipeline.push({ $match: matchConditions });
+    }
+
+    pipeline.push(
       { $lookup: { from: 'admission', localField: '_id', foreignField: 'enquiry_id', as: 'admissionDetails' } },
       {
         $lookup: {
@@ -9484,16 +9584,23 @@ export class EnquiryService {
       },
 
       { $sort: { school: 1, course: 1, board: 1, grade: 1, stream: 1, source: 1, subSource: 1 } },
-    ];
+    );
+    // console.log("pipeline=>\n", JSON.stringify(pipeline, null, 2));
 
     const aggRows = await this.enquiryRepository.aggregate(pipeline).allowDiskUse(true);
+    // console.log("aggRows Count=>>", aggRows?.length)
 
     // Collect school IDs for MDM lookup
     const schoolIds = [...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean))];
 
-    // No MDM? return merged rows with cluster=NA
+    // No MDM? return merged rows with cluster=NA (but still apply any non-cluster filters)
     if (!schoolIds.length) {
-      return this.enquiryHelper.mergeVisibleRows(aggRows.map((r) => ({ cluster: 'NA', ...r })));
+      let rowsWithCluster = aggRows.map((r) => ({ cluster: 'NA', ...r }));
+      // If cluster filter was requested, nothing will match (because cluster NA) — return filtered result
+      if (filters && filters.cluster && filters.cluster.length) {
+        rowsWithCluster = rowsWithCluster.filter((rr) => filters.cluster.includes(rr.cluster));
+      }
+      return this.enquiryHelper.mergeVisibleRows(rowsWithCluster);
     }
 
     // Fetch MDM school metadata
@@ -9523,8 +9630,46 @@ export class EnquiryService {
       return { cluster, ...r };
     });
 
+    // If cluster[] filter exists, filter here (cluster is from MDM)
+    let filteredByClusterRows = finalRows;
+    if (filters && filters.cluster && filters.cluster.length) {
+
+      const requested = filters.cluster.map((c: any) => String(c).trim());
+      const requestedIds = new Set(requested.filter(r => /^\d+$/.test(r)).map(r => r)); // "2", "10"
+      const requestedNames = new Set(requested.filter(r => !/^\d+$/.test(r)).map(r => r.toLowerCase())); // "cluster 1"
+
+      // Collect school_ids from mdmSchools that belong to requested clusters
+      const allowedSchoolIds = new Set<string>();
+
+      mdmSchools.forEach((s: any) => {
+        const schoolId = s.school_id ?? s.schoolId;
+        if (!schoolId) return;
+
+        // try common cluster shapes
+        const clusterId = s.cluster_id ?? s.cluster?.id;
+        const clusterName = (s.cluster_name ?? s.cluster?.name ?? s.cluster?.cluster_name) || null;
+
+        if (clusterId !== undefined && clusterId !== null && requestedIds.has(String(clusterId))) {
+          allowedSchoolIds.add(String(schoolId));
+          return;
+        }
+
+        if (clusterName && requestedNames.has(String(clusterName).toLowerCase())) {
+          allowedSchoolIds.add(String(schoolId));
+          return;
+        }
+      });
+
+      if (allowedSchoolIds.size === 0) {
+        console.log('Cluster filter did not match any MDM schools. requested=', requested);
+        filteredByClusterRows = [];
+      } else {
+        filteredByClusterRows = finalRows.filter((r) => allowedSchoolIds.has(String(r.school_id)));
+      }
+    }
+
     // Merge identical visible rows
-    return this.enquiryHelper.mergeVisibleRows(finalRows);
+    return this.enquiryHelper.mergeVisibleRows(filteredByClusterRows);
   }
 
   async generateAndUploadSourceWiseInquiryStatusCsv(
@@ -9554,6 +9699,7 @@ export class EnquiryService {
         'Close Walkin %': Number((r.closed.walkin_pct ?? 0).toFixed(2)),
         'Close KitSold %': Number((r.closed.kit_sold_pct ?? 0).toFixed(2)),
         'Close Registration %': Number((r.closed.registration_pct ?? 0).toFixed(2)),
+        'Close Admission %': Number(((r.closed?.admission_pct ?? 0)).toFixed(2)),
 
         'Total OpenInquiries': r.totalOpenInquiries ?? 0,
         'Total ClosedInquiries': r.totalClosedInquiries ?? 0,
@@ -9577,6 +9723,7 @@ export class EnquiryService {
         'Close Walkin %',
         'Close KitSold %',
         'Close Registration %',
+        'Close Admission %',
         'Total OpenInquiries',
         'Total ClosedInquiries',
       ];

@@ -38,6 +38,7 @@ import { ParentLoginEvent } from '../parentLoginLogs/parentLoginLogs.type';
 import { EmailService } from '../../global/global.email.service';
 import { NotificationService } from '../../global/notification.service';
 import { ReferralReminderService } from '../referralReminder/referralReminder.service';
+import { ShortUrlService } from '../shortUrl/shorturl.service';
 
 @Injectable({ scope: Scope.TRANSIENT })
 export class EnquiryStageUpdateService {
@@ -69,6 +70,7 @@ export class EnquiryStageUpdateService {
     private emailService: EmailService,
     private notificationService: NotificationService,
     private referralReminderService: ReferralReminderService,
+    private urlService: ShortUrlService,
   ) {}
 
   async getEnquiryStages(enquiryId: string) {
@@ -261,7 +263,7 @@ export class EnquiryStageUpdateService {
                 new Types.ObjectId(this.enquiryDetails._id)
               );
               
-              const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
+              const baseUrl = process.env.MARKETING_BASE_URL || 
                 'https://preprod-marketing-hubbleorion.hubblehox.com';
 
               const token = this.request?.headers?.authorization?.replace('Bearer ', '') || '';
@@ -310,7 +312,7 @@ export class EnquiryStageUpdateService {
                       parentName: parentName,
                       studentName: studentName,
                       schoolName: enquiryData.school_location?.value,
-                      academicYear: enquiryData.academic_year?.value
+                      academicYear: enquiryData.academic_year?.value,
                     }
                   },
                   token,
@@ -321,35 +323,41 @@ export class EnquiryStageUpdateService {
                 if (parentPhone) {
                   try {
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
+                    let recepientDetails = this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
                     
-                    const sendParentSMS = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
-                      parentName: parentName,
-                      studentName: studentName,
-                      schoolName: enquiryData.school_location?.value || 'VIBGYOR',
-                      academicYear: enquiryData.academic_year?.value || '',
-                    });
+                    console.log('recepientDetails_____', recepientDetails);
 
-                    const sendReferralSMS = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
-                      parentName: parentName,
-                      studentName: studentName,
-                      schoolName: enquiryData.school_location?.value || 'VIBGYOR',
-                      academicYear: enquiryData.academic_year?.value || '',
-                    });
+                    //! based on the type of recepient we are sending sms for now its
+                    //! parent and refferal
+                    for (const recipient of recepientDetails) {
+                      // ✅ Build custom URL for each recipient type
+                      const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent'? 'referral' : 'refferer'}`;
 
-                    const smsParentResult = await this.notificationService.sendDirectSMS(
-                      parentPhone.toString(),
-                      sendParentSMS
-                    );
-                    const smsReferralResult = await this.notificationService.sendDirectSMS(
-                      parentPhone.toString(),
-                      sendReferralSMS
-                    );
-                    
-                    if (smsParentResult) {
-                      this.loggerService.log(`✅ Admission SMS sent successfully to ${parentPhone}`);
-                    } else {
-                      this.loggerService.error(`❌ Failed to send admission SMS to ${parentPhone} - Check SMS gateway IP whitelist`, '');
+                      //! creating custom url for each recipient
+                      let createUrl = await this.urlService.createUrl({url: customUrl})
+
+                      console.log('shortUrl_____', createUrl);
+                      let shortUrl = process.env.SHORT_URL_BASE || 'https://pre.vgos.org/';
+                      console.log(`URL: ${shortUrl}`);
+                      
+                      const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
+                        parentName: parentName,
+                        studentName: studentName,
+                        schoolName: enquiryData.school_location?.value || 'VIBGYOR',
+                        academicYear: enquiryData.academic_year?.value || '',
+                        verificationUrl: shortUrl,
+                        recipientName: recipient.name,
+                      });
+
+                      console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
+
+                      await this.notificationService.sendDirectSMS(
+                        recipient.phone.toString(),
+                        smsMessage
+                      );
                     }
+                    
+                    this.loggerService.log(`✅ Admission SMS sent successfully to all recipients`);
                   } catch (smsError) {
                     this.loggerService.error(`❌ Error sending admission SMS: ${smsError.message}`, smsError.stack);
                   }

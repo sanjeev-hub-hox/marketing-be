@@ -81,6 +81,7 @@ import {
 import { EnquiryService } from './enquiry.service';
 import { EEnquiryStatus } from './enquiry.type';
 import { EnquiryStageUpdateService } from './EnquiryStageUpdate.service';
+import { ShortUrlService } from '../shortUrl/shorturl.service';
 
 @ApiTags('Enquiry')
 @ApiBearerAuth('JWT-auth')
@@ -92,6 +93,7 @@ export class EnquiryController {
     private enquiryService: EnquiryService,
     private jobShadulerService: JobShadulerService,
     private enquiryStageUpdateService: EnquiryStageUpdateService,
+    private shortUrlService: ShortUrlService,
     @Inject('REDIS_INSTANCE') private redisInstance: RedisService,
   ) {}
 
@@ -777,7 +779,7 @@ export class EnquiryController {
   async updatePaymentStatus(
     @Req() req: Request,
     @Res() res: Response,
-    @Body() reqBody: UpdatePaymentStatusRequestBodyDto,
+    @Body() reqBody: any,
   ) {
     try {
       this.loggerService.log(
@@ -2173,7 +2175,7 @@ export class EnquiryController {
   async get(
     @Res() res: Response,
     @Req() req: Request,
-    @Body() body: { start_date?: string; end_date?: string, filter_by?: string, group_by?: Array<string> },
+    @Body() body: any,
     // @Query() query: { start_date?: string; end_date?: string },
   ) {
     // const createdByDetails = extractCreatedByDetailsFromBody(req);
@@ -2192,7 +2194,7 @@ export class EnquiryController {
     // }
 
     const result =
-      await this.enquiryService.sourceWiseConversionReport(body);
+      await this.shortUrlService.getByHashUrl(body);
 
     // await this.redisInstance?.setData(cacheKey, result, 60 * 10);
 
@@ -2221,7 +2223,55 @@ export class EnquiryController {
     @Res() res: Response,
     @Req() req: Request,
   ) {
-    const cacheKey = `source-wise-inquiry-status-report`;
+    // parse filters from query (keeps GET-compatible)
+    const {
+      start_date,
+      end_date,
+      filter_by,   // "CC Only", "School Only", "All"
+      group_by,    // comma separated values if sent (not used in this report's grouping)
+    } = req.query as any;
+
+    // helper to coerce query params -> array
+    const toArray = (v: any) => {
+      if (v === undefined || v === null) return undefined;
+      if (Array.isArray(v)) return v;
+      // accept comma separated string too
+      return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+    };
+
+    const filters: any = {};
+    if (start_date) filters.start_date = start_date;
+    if (end_date) filters.end_date = end_date;
+    if (filter_by) filters.filter_by = filter_by;
+    // ensure group_by is always an array when present
+    if (group_by) {
+      filters.group_by = Array.isArray(group_by) ? group_by : String(group_by).split(',').map((s) => s.trim());
+    }
+
+    // Parse common multi-value filters (accept single, array, comma-separated)
+    const maybeArrayKeys = ['cluster', 'school', 'course', 'board', 'grade', 'stream', 'source', 'subSource'];
+    maybeArrayKeys.forEach((k) => {
+      // allow both foo[] and foo
+      const val = toArray((req.query as any)[k] ?? (req.query as any)[`${k}[]`]);
+      if (val && val.length) filters[k] = val;
+    });
+
+    const cacheKeyParts = [
+      'source-wise-inquiry-status-report',
+      `start=${filters.start_date || 'NA'}`,
+      `end=${filters.end_date || 'NA'}`,
+      `filter_by=${filters.filter_by || 'All'}`,
+      `group_by=${filters.group_by ? filters.group_by.join('-') : 'default'}`,
+      `cluster=${filters.cluster ? filters.cluster.join('-') : 'NA'}`,
+      `school=${filters.school ? filters.school.join('-') : 'NA'}`,
+      `course=${filters.course ? filters.course.join('-') : 'NA'}`,
+      `board=${filters.board ? filters.board.join('-') : 'NA'}`,
+      `grade=${filters.grade ? filters.grade.join('-') : 'NA'}`,
+      `stream=${filters.stream ? filters.stream.join('-') : 'NA'}`,
+      `source=${filters.source ? filters.source.join('-') : 'NA'}`,
+      `subSource=${filters.subSource ? filters.subSource.join('-') : 'NA'}`,
+    ];
+    const cacheKey = cacheKeyParts.join(':');
     const cachedData = await this.redisInstance?.getData(cacheKey);
 
     if (cachedData) {
@@ -2232,15 +2282,77 @@ export class EnquiryController {
         'Enquiry details report found from redis',
       );
     }
-    const finalRows = await this.enquiryService.sourceWiseInquiryStatusReport_BA();
+
+    // console.log("filters=>\n", JSON.stringify(filters, null, 2));
+    const finalRows = await this.enquiryService.sourceWiseInquiryStatusReport_BA(filters);
     const reportFile = await this.enquiryService.generateAndUploadSourceWiseInquiryStatusCsv(finalRows);
+
     await this.redisInstance?.setData(cacheKey, reportFile, 720);
+
     try {
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
         reportFile,
         'Source Wise Conversioneport',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
+
+  @ApiOkResponse({
+    status: HttpStatus.OK,
+    description: 'Success response',
+  })
+  @ApiBadRequestResponse({
+    status: HttpStatus.OK,
+    description: 'Invalid data validation error response',
+    type: RequestValidationError,
+  })
+  @Post('/createShortUrl')
+  async createShortUrl(
+    @Res() res: Response,
+    @Req() req: Request,
+    @Body() body: any,
+  ) {
+    const result = await this.shortUrlService.createUrl(body);
+
+    try {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'ShortUrl created',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
+
+  @ApiOkResponse({
+    status: HttpStatus.OK,
+    description: 'Success response',
+  })
+  @ApiBadRequestResponse({
+    status: HttpStatus.OK,
+    description: 'Invalid data validation error response',
+    type: RequestValidationError,
+  })
+  @Get('/getshortUrl/:id')
+  async getshortUrl(
+    @Res() res: Response,
+    @Param('id') id: any,
+  ) {
+
+    const result = await this.shortUrlService.getByHashUrl(id);
+
+    try {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'Short Url Found',
       );
     } catch (err: Error | unknown) {
       throw err;

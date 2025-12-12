@@ -19,7 +19,7 @@ export const SMS_TEMPLATES: Record<SmsTemplateType, SmsTemplate> = {
   },
   [SmsTemplateType.ADMISSION_CONFIRMATION]: {
     type: SmsTemplateType.ADMISSION_CONFIRMATION,
-    template: `Congratulations {parentName}! {studentName} has been admitted to {schoolName} for {academicYear}. Welcome to VIBGYOR family! -VIBGYOR`,
+    template: 'Congratulations {parentName}! {studentName} has been admitted to {schoolName} for {academicYear}. Welcome to VIBGYOR family! -VIBGYOR',
     variables: ['parentName', 'studentName', 'schoolName', 'academicYear'],
   },
 };

@@ -36,6 +36,7 @@ import { AdmissionFeeQueueSubscriber } from './queueSubscriber';
 import { ParentLoginLogModule } from '../parentLoginLogs/parentLoginLogs.module';
 import { JobShadulerModule } from '../jobShaduler/jobShaduler.module';
 import { ReferralReminderModule } from '../referralReminder/referralReminder.module';
+import { ShortUrlModule } from '../shortUrl/shorturl.module';
 
 
 @Module({
@@ -58,6 +59,7 @@ import { ReferralReminderModule } from '../referralReminder/referralReminder.mod
     AuthModule,
     ParentLoginLogModule,
     JobShadulerModule,
+    ShortUrlModule,
     forwardRef(() => ReferralReminderModule)
   ],
   providers: [

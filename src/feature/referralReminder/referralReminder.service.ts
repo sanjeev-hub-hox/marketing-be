@@ -144,7 +144,7 @@ export class ReferralReminderService {
     return this.verificationTracker.getVerificationStatus(enquiryId);
   }
 
-  private getAllRecipients(enquiryData: any, baseUrl: string): RecipientInfo[] {
+  getAllRecipients(enquiryData: any, baseUrl: string): RecipientInfo[] {
     const recipients: RecipientInfo[] = [];
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
