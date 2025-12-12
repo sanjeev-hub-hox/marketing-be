@@ -111,4 +111,8 @@ export const excludedRoutes = [
     path: 'enquiry/:enqryid/move-to-next-stage',
     method: RequestMethod.PATCH,
   },
+  {
+    path: 'pre.vgos.org/:id',
+    method: RequestMethod.GET,
+  },
 ];

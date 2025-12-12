@@ -45,6 +45,7 @@ import { AuthorizationMiddlewareFactory } from './middleware/auth/authorizationM
 import { excludedRoutes } from './middleware/auth/authorizedRoutes';
 import { LoggerService, ResponseService } from './utils';
 // import { KafkaModule } from './kafka/kafka.module';
+import { ShortUrlModule } from './feature/shortUrl/shorturl.module';
 
 @Global()
 @Module({
@@ -92,6 +93,7 @@ import { LoggerService, ResponseService } from './utils';
     MyTaskModule,
     ExternalEnquiryModule,
     ExternalEnquiryTypeModule,
+    ShortUrlModule,
     // KafkaModule
   ],
 

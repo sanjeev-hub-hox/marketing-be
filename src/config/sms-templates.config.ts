@@ -14,7 +14,8 @@ export interface SmsTemplate {
 export const SMS_TEMPLATES: Record<SmsTemplateType, SmsTemplate> = {
   [SmsTemplateType.REFERRAL_VERIFICATION]: {
     type: SmsTemplateType.REFERRAL_VERIFICATION,
-    template: 'Dear {recipientName}, please take a moment to check your referral details by clicking the link provided {verificationUrl} -VIBGYOR',
+    // template: 'Dear {recipientName}, please take a moment to check your referral details by clicking the link provided {verificationUrl} -VIBGYOR',
+    template: 'Dear {recipientName}, please take a moment to check your referral details by clicking the link provided https:/{verificationUrl} -VIBGYOR',
     variables: ['recipientName', 'verificationUrl'],
   },
   [SmsTemplateType.ADMISSION_CONFIRMATION]: {

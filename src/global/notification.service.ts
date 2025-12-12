@@ -152,7 +152,7 @@ export class NotificationService {
       const options: any = await this.smsGatewayOptions();
       const encodedMsg = encodeURIComponent(message);
 
-
+      console.log('encodedMsg_____', encodedMsg);
       console.log('url and key_____',`${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${encodedMsg}&route=49`, options.key);
       const smsRequest = await fetch(
         `${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`
