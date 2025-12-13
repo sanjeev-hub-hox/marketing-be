@@ -326,7 +326,7 @@ export class EnquiryStageUpdateService {
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                     let recepientDetails = this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
                     
-                    console.log('recepientDetails_____', recepientDetails);
+                    // console.log('recepientDetails_____', recepientDetails);
 
                     //! based on the type of recepient we are sending sms for now its
                     //! parent and refferal
@@ -336,10 +336,10 @@ export class EnquiryStageUpdateService {
 
                       //! creating custom url for each recipient
                       let createUrl = await this.urlService.createUrl({url: customUrl})
-                      console.log('Created short URL record:', createUrl);
+                      // console.log('Created short URL record:', createUrl);
 
                       let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/'}${createUrl.hash}`;
-                      console.log(`URL: ${shortUrl}`);
+                      // console.log(`URL: ${shortUrl}`);
                       
                       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
                         parentName: firstName,
@@ -347,10 +347,10 @@ export class EnquiryStageUpdateService {
                         schoolName: enquiryData.school_location?.value || 'VIBGYOR',
                         academicYear: enquiryData.academic_year?.value || '',
                         verificationUrl: shortUrl,
-                        recipientName: recipient.name,
+                        recipientName: recipient.name.split(' ')[0] || '', 
                       });
 
-                      console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
+                      // console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
 
                       await this.notificationService.sendDirectSMS(
                         recipient.phone.toString(),
@@ -358,7 +358,7 @@ export class EnquiryStageUpdateService {
                       );
                     }
                     
-                    this.loggerService.log(`✅ Admission SMS sent successfully to all recipients`);
+                    // this.loggerService.log(`✅ Admission SMS sent successfully to all recipients`);
                   } catch (smsError) {
                     this.loggerService.error(`❌ Error sending admission SMS: ${smsError.message}`, smsError.stack);
                   }

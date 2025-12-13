@@ -12,6 +12,13 @@ export class ShortUrlSchema {
 
   @Prop({ required: true, unique: true })
   hash: string;
+
+  @Prop({
+    type: Date,
+    default: Date.now,
+    expires: 60 * 60 * 24 * 30, // 30 days in seconds
+  })
+  expireAt: Date;
 }
 
 export type ShortUrlDocument = HydratedDocument<ShortUrlSchema>;

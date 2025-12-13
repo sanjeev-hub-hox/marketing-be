@@ -65,10 +65,10 @@ export class NotificationService {
     if (notifypayload.to_mobile.length === 0) delete notifypayload.to_mobile;
 
     try {
-      this.logger.log('=== Notification Request ===');
-      this.logger.log(`URL: ${BaseUrl}/notification/send?${await this.getplatform(platform)}`);
-      this.logger.log(`Payload: ${JSON.stringify(notifypayload, null, 2)}`);
-      this.logger.log(`Token present: ${!!token}`);
+      // this.logger.log('=== Notification Request ===');
+      // this.logger.log(`URL: ${BaseUrl}/notification/send?${await this.getplatform(platform)}`);
+      // this.logger.log(`Payload: ${JSON.stringify(notifypayload, null, 2)}`);
+      // this.logger.log(`Token present: ${!!token}`);
       
       const response = await axios.post(
         `${BaseUrl}/notification/send`,
@@ -84,8 +84,8 @@ export class NotificationService {
         }
       );
 
-      this.logger.log(`Notification sent successfully. Status: ${response.status}`);
-      this.logger.log(`Response: ${JSON.stringify(response.data)}`);
+      // this.logger.log(`Notification sent successfully. Status: ${response.status}`);
+      // this.logger.log(`Response: ${JSON.stringify(response.data)}`);
       
       if (response.status === 200) {
         return true;
@@ -148,20 +148,20 @@ export class NotificationService {
       // Ensure phone number is in correct format (last 10 digits)
       const formattedPhone = phone.toString().slice(-10);
 
-      console.log('message_data_____', message);
+      // console.log('message_data_____', message);
       const options: any = await this.smsGatewayOptions();
       const encodedMsg = encodeURIComponent(message);
 
-      console.log('encodedMsg_____', encodedMsg);
-      console.log('url and key_____',`${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${encodedMsg}&route=49`, options.key);
+
+      // console.log('url and key_____',`${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${encodedMsg}&route=49`, options.key);
       const smsRequest = await fetch(
         `${options.url}?APIKey=${options.key}&senderid=VIBSMS&channel=2&DCS=0&flashsms=0&number=${phone}&text=${message}&route=49`
       );
       const res = await smsRequest.json();
-      console.log('sendSMS_res-',res);
+      // console.log('sendSMS_res-',res);
 
-      console.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
-      console.log(`[SMS] Message: ${message.substring(0, 100)}...`);
+      // console.log(`[SMS] 📱 Attempting to send to ${formattedPhone}`);
+      // console.log(`[SMS] Message: ${message.substring(0, 100)}...`);
 
 
 
@@ -176,22 +176,6 @@ export class NotificationService {
       //   console.log(`[SMS] ❌ SMS Gateway Error Code: ${errorCode}`);
       //   console.log(`[SMS] ❌ SMS Gateway Error Message: ${errorMessage}`);
         
-      //   // Provide specific error guidance
-      //   switch (errorCode) {
-      //     case '11':
-      //       this.logger.error('[SMS] 🔒 IP ADDRESS RESTRICTION');
-      //       this.logger.error('[SMS] Solution: Contact your SMS gateway provider to whitelist your server IP');
-      //       this.logger.error(`[SMS] Your server IP might be visible in the gateway logs or run: curl ifconfig.me`);
-      //       break;
-      //     case '12':
-      //       this.logger.error('[SMS] Invalid API Key');
-      //       break;
-      //     case '13':
-      //       this.logger.error('[SMS] Invalid Phone Number');
-      //       break;
-      //     default:
-      //       this.logger.error(`[SMS] Unknown error code: ${errorCode}`);
-      //   }
         
       //   return false;
       // }

@@ -43,14 +43,14 @@ export class ReferralReminderService {
       const recipients = this.getAllRecipients(enquiryData, baseUrl);
       const config = referralReminderConfig;
 
-      this.loggerService.log(`[REFERRAL] 📧 Sending initial notifications to ${recipients.length} recipients`);
+      // this.loggerService.log(`[REFERRAL] 📧 Sending initial notifications to ${recipients.length} recipients`);
 
       // Send initial notifications
       for (const recipient of recipients) {
         await this.sendNotification(recipient, enquiryData, token, platform);
       }
 
-      this.loggerService.log(`[REFERRAL] ✅ Initial notifications sent`);
+      // this.loggerService.log(`[REFERRAL] ✅ Initial notifications sent`);
 
       // Calculate reminder schedule
       const maxReminders = config.frequency * config.duration;
@@ -59,9 +59,9 @@ export class ReferralReminderService {
 
       // 🔥 CREATE REMINDER RECORDS IN DATABASE
       for (const recipient of recipients) {
-        this.loggerService.log(
-          `[REFERRAL] 💾 Creating reminder record for ${recipient.type}: ${recipient.email}`
-        );
+        // this.loggerService.log(
+        //   `[REFERRAL] 💾 Creating reminder record for ${recipient.type}: ${recipient.email}`
+        // );
 
         // Calculate first reminder schedule (after initial notification)
         const firstReminderDate = this.calculateNextSchedule(startDate, hoursInterval);
@@ -89,9 +89,9 @@ export class ReferralReminderService {
             error_logs: [],
           });
 
-          this.loggerService.log(
-            `[REFERRAL] ✅ Reminder record created for ${recipient.type}: ${recipient.email}`
-          );
+          // this.loggerService.log(
+          //   `[REFERRAL] ✅ Reminder record created for ${recipient.type}: ${recipient.email}`
+          // );
         } catch (error) {
           this.loggerService.error(
             `[REFERRAL] ❌ Failed to create reminder record for ${recipient.email}: ${error.message}`,

@@ -2812,7 +2812,11 @@ export class EnquiryService {
     size?: number,
     filtersArray?: FilterItemDto[],
     globalSearchText?: string,
+    sortBy?: string,              // NEW PARAMETER
+    sortOrder?: 'asc' | 'desc',   // NEW PARAMETER
   ) {
+    const startTime = Date.now(); // For performance monitoring
+    
     const pageNumber = page || 1;
     const pageSize = size ? parseInt(size as any, 10) : 10;
 
@@ -2859,37 +2863,137 @@ export class EnquiryService {
 
     const pipeline: PipelineStage[] = [];
 
-    // 1. Global search - must be first if using $text, otherwise use regex approach
+    // ============================================
+    // STEP 3: REPLACE GLOBAL SEARCH LOGIC
+    // ============================================
+    // OLD CODE (REMOVE THIS):
+    // if (globalSearchText && globalSearchText.trim()) {
+    //   pipeline.push({
+    //     $match: {
+    //       $text: { $search: globalSearchText },
+    //     },
+    //   });
+    // }
+
+    // NEW CODE (ADD THIS):
     if (globalSearchText && globalSearchText.trim()) {
-      pipeline.push({
-        $match: {
-          $text: { $search: globalSearchText },
-        },
-      });
+      const searchText = globalSearchText.trim();
+      const isNumeric = /^\d+$/.test(searchText);
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const isEmail = emailPattern.test(searchText);
+      
+      if (isNumeric) {
+        // For mobile numbers - use regex on indexed fields
+        pipeline.push({
+          $match: {
+            $or: [
+              { enquiry_number: { $regex: searchText, $options: 'i' } },
+              { 'parent_details.father_details.mobile': { $regex: searchText } },
+              { 'parent_details.mother_details.mobile': { $regex: searchText } },
+              { 'parent_details.guardian_details.mobile': { $regex: searchText } }
+            ]
+          }
+        });
+      } else if (isEmail) {
+        // For email searches
+        pipeline.push({
+          $match: {
+            $or: [
+              { 'parent_details.father_details.email': { $regex: searchText, $options: 'i' } },
+              { 'parent_details.mother_details.email': { $regex: searchText, $options: 'i' } },
+              { 'parent_details.guardian_details.email': { $regex: searchText, $options: 'i' } }
+            ]
+          }
+        });
+      } else {
+        // For text searches (names) - use MongoDB text search
+        // Text search automatically handles partial matches and is optimized
+        pipeline.push({
+          $match: {
+            $text: { $search: searchText }
+          }
+        });
+        
+        // Add text score for relevance ranking
+        pipeline.push({
+          $addFields: {
+            searchScore: { $meta: "textScore" }
+          }
+        });
+      }
     }
 
-    // 2. Initial match with basic filters (combined with search results)
+    // ============================================
+    // STEP 4: INITIAL MATCH (Keep as is)
+    // ============================================
     const baseMatch = {
       ...(!isSuperAdmissionPermission ? { assigned_to_id: user_id } : {}),
-      // is_registered: false,
       ...(!hasAnyFilter ? { status: EEnquiryStatus.OPEN } : {}),
     };
 
     pipeline.push({ $match: baseMatch });
 
-    // 4. Sort early for better index usage
-    pipeline.push({
-      $sort: {
-        created_at: -1,
-      },
-    });
+    // ============================================
+    // STEP 5: REPLACE SORT LOGIC
+    // ============================================
+    // OLD CODE (REMOVE THIS):
+    // pipeline.push({
+    //   $sort: {
+    //     created_at: -1,
+    //   },
+    // });
 
-    // 5. Limit early if no complex aggregations needed
-    if (globalSearchText && !filtersArray?.length) {
-      pipeline.push({ $limit: skip + pageSize });
+    // NEW CODE (ADD THIS):
+    const sortStage: any = {};
+    
+    if (sortBy) {
+      // Map frontend column names to database fields
+      const sortFieldMap: Record<string, string> = {
+        'enquiryDate': 'created_at',
+        'studentName': 'studentName',
+        'grade': 'student_details.grade.value',
+        'mobileNumber': 'mobileNumber',
+        'stage': 'lastCompletedStage.stage_name',
+        'priority': 'priority',
+        'nextFollowUpDate': 'next_follow_up_at',
+        'school': 'school_location.value',
+        'academicYear': 'academic_year.value',
+        'enquirer': 'enquirer',
+        'status': 'status'
+      };
+      
+      const dbField = sortFieldMap[sortBy] || 'created_at';
+      sortStage[dbField] = sortOrder === 'desc' ? -1 : 1;
+      
+      // Add secondary sort by created_at if not primary sort
+      if (dbField !== 'created_at') {
+        sortStage.created_at = -1;
+      }
+    } else if (globalSearchText && globalSearchText.trim() && !/^\d+$/.test(globalSearchText.trim())) {
+      // If searching text, sort by relevance first
+      sortStage.searchScore = { $meta: "textScore" };
+      sortStage.created_at = -1;
+    } else {
+      // Default sort
+      sortStage.created_at = -1;
+    }
+    
+    // Note: Don't add sort here yet, we'll add it after computed fields
+
+    // ============================================
+    // STEP 6: OPTIMIZE EARLY LIMIT
+    // ============================================
+    // Only limit early if doing simple search without complex filters
+    if (globalSearchText && !filtersArray?.length && !sortBy) {
+      pipeline.push({ 
+        $limit: Math.min(skip + pageSize * 10, 10000) // Limit to reduce data processing
+      });
     }
 
-    // 6. Lookups and transformations
+    // ============================================
+    // KEEP ALL EXISTING LOOKUP AND TRANSFORMATION LOGIC
+    // (Lines with $lookup, $addFields, etc. - NO CHANGES)
+    // ============================================
     pipeline.push(
       {
         $lookup: {
@@ -2913,7 +3017,7 @@ export class EnquiryService {
           foreignField: 'enquiry_id',
           as: 'enquiryFollowUps',
           pipeline: [
-            { $limit: 1 }, // Only check if any follow-ups exist // Only add followUps lookup if needed for the response
+            { $limit: 1 },
             { $project: { _id: 1 } },
           ],
         },
@@ -2957,6 +3061,7 @@ export class EnquiryService {
         },
       },
     );
+
     pipeline.push(
       {
         $addFields: {
@@ -2989,6 +3094,7 @@ export class EnquiryService {
         },
       },
     );
+
     pipeline.push({
       $addFields: {
         enquiryFor: {
@@ -3175,7 +3281,7 @@ export class EnquiryService {
           $cond: [
             {
               $and: [
-                { $ne: ['$status', EEnquiryStatus.CLOSED] }, // Check if status is NOT 'closed'
+                { $ne: ['$status', EEnquiryStatus.CLOSED] },
                 {
                   $lte: [
                     {
@@ -3225,9 +3331,9 @@ export class EnquiryService {
                 `${ENQUIRY_PRIORITY.WARM}`,
                 {
                   $cond: [
-                    { $eq: ['$status', EEnquiryStatus.CLOSED] }, // If status is 'closed', set to COLD
+                    { $eq: ['$status', EEnquiryStatus.CLOSED] },
                     `${ENQUIRY_PRIORITY.COLD}`,
-                    `${ENQUIRY_PRIORITY.COLD}`, // Default to COLD if no other condition matches
+                    `${ENQUIRY_PRIORITY.COLD}`,
                   ],
                 },
               ],
@@ -3244,10 +3350,21 @@ export class EnquiryService {
       },
     });
 
+    // ============================================
+    // STEP 7: ADD CUSTOM FILTERS
+    // ============================================
     if (Object.keys(customFilter)?.length) {
       pipeline.push({ $match: customFilter });
     }
 
+    // ============================================
+    // STEP 8: ADD SORT STAGE HERE (After all computed fields)
+    // ============================================
+    pipeline.push({ $sort: sortStage });
+
+    // ============================================
+    // KEEP EXISTING PROJECT AND FACET STAGES
+    // ============================================
     pipeline.push({
       $project: {
         _id: 0,
@@ -3280,8 +3397,11 @@ export class EnquiryService {
             else: true,
           },
         },
+        // Keep searchScore if it exists for debugging
+        ...(globalSearchText && !/^\d+$/.test(globalSearchText.trim()) ? { searchScore: 1 } : {}),
       },
     });
+
     pipeline.push({
       $facet: {
         data: [
@@ -3295,6 +3415,7 @@ export class EnquiryService {
             $project: {
               created_at: 0,
               next_follow_up_at: 0,
+              searchScore: 0, // Remove from final output
             },
           },
         ],
@@ -3306,10 +3427,15 @@ export class EnquiryService {
       },
     });
 
+    // ============================================
+    // STEP 9: EXECUTE WITH PERFORMANCE MONITORING
+    // ============================================
     console.log('Pipeline ---> ', JSON.stringify(pipeline));
 
     const populatedEnquiries = await this.enquiryRepository
       .aggregate(pipeline)
+      .allowDiskUse(true)  // Allow disk use for large datasets
+      .maxTimeMS(10000)    // Timeout after 10 seconds
       .exec();
 
     const [result] = populatedEnquiries;
@@ -3318,6 +3444,20 @@ export class EnquiryService {
       result.totalCount.length > 0 ? result.totalCount[0].count : 0;
 
     const totalPages = Math.ceil(totalCount / pageSize);
+
+    // ============================================
+    // STEP 10: LOG PERFORMANCE
+    // ============================================
+    const executionTime = Date.now() - startTime;
+    if (executionTime > 1500) {
+      this.loggerService.warn(
+        `Slow query detected: ${executionTime}ms | Search: "${globalSearchText}" | Filters: ${filtersArray?.length || 0} | Results: ${totalCount}`
+      );
+    } else {
+      this.loggerService.log(
+        `Query executed in ${executionTime}ms | Search: "${globalSearchText}" | Results: ${totalCount}`
+      );
+    }
 
     return {
       content: paginatedData,
