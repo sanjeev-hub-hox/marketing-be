@@ -338,7 +338,7 @@ export class EnquiryStageUpdateService {
                       let createUrl = await this.urlService.createUrl({url: customUrl})
                       // console.log('Created short URL record:', createUrl);
 
-                      let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/'}${createUrl.hash}`;
+                      let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
                       // console.log(`URL: ${shortUrl}`);
                       
                       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {

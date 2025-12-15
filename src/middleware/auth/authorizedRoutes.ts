@@ -32,10 +32,6 @@ export const routes = [
 // TODO: Remove these routes once other services pass token in the API call
 export const excludedRoutes = [
   {
-    path: '/enquiry/cc/list/',
-    method: RequestMethod.POST,
-  },
-  {
     path: '/enquiry/eligible-grade',
     method: RequestMethod.GET,
   },
@@ -111,13 +107,13 @@ export const excludedRoutes = [
     path: 'referral-view/:id',
     method: RequestMethod.GET,
   },
+  //! Temporary excluded routes for vgos integration
   {
-    path: 'pre.vgos.org/:id',
+    path: 'enquiry/pre.vgos.org/:id',
     method: RequestMethod.GET,
   },
   {
     path: 'enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
   },
-
 ];
