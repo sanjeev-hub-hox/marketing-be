@@ -3435,7 +3435,6 @@ export class EnquiryService {
     const populatedEnquiries = await this.enquiryRepository
       .aggregate(pipeline)
       .allowDiskUse(true)  // Allow disk use for large datasets
-      .maxTimeMS(10000)    // Timeout after 10 seconds
       .exec();
 
     const [result] = populatedEnquiries;
@@ -9830,16 +9829,33 @@ export class EnquiryService {
 
         'Total Inquiry': r.totalInquiry ?? 0,
 
+        'Open Enquiry value': r.open?.enquiry ?? 0,
         'Open Enquiry %': Number((r.open.enquiry_pct ?? 0).toFixed(2)),
+
+        'Open Walkin value': r.open?.walkin ?? 0,
         'Open Walkin %': Number((r.open.walkin_pct ?? 0).toFixed(2)),
+
+        'Open KitSold value': r.open?.kit_sold ?? 0,
         'Open KitSold %': Number((r.open.kit_sold_pct ?? 0).toFixed(2)),
+
+        'Open Registration value': r.open?.registration ?? 0,
         'Open Registration %': Number((r.open.registration_pct ?? 0).toFixed(2)),
 
+
+        'Close Enquiry value': r.closed?.enquiry ?? 0,
         'Close Enquiry %': Number((r.closed.enquiry_pct ?? 0).toFixed(2)),
+
+        'Close Walkin value': r.closed?.walkin ?? 0,
         'Close Walkin %': Number((r.closed.walkin_pct ?? 0).toFixed(2)),
+
+        'Close KitSold value': r.closed?.kit_sold ?? 0,
         'Close KitSold %': Number((r.closed.kit_sold_pct ?? 0).toFixed(2)),
+
+        'Close Registration value': r.closed?.registration ?? 0,
         'Close Registration %': Number((r.closed.registration_pct ?? 0).toFixed(2)),
-        'Close Admission %': Number(((r.closed?.admission_pct ?? 0)).toFixed(2)),
+        
+        'Close Admission value': r.closed?.admission ?? 0,
+        'Close Admission %': Number((r.closed?.admission_pct ?? 0).toFixed(2)),
 
         'Total OpenInquiries': r.totalOpenInquiries ?? 0,
         'Total ClosedInquiries': r.totalClosedInquiries ?? 0,
@@ -9855,14 +9871,23 @@ export class EnquiryService {
         'Source',
         'Sub Source',
         'Total Inquiry',
+        'Open Enquiry value',
         'Open Enquiry %',
+        'Open Walkin value',
         'Open Walkin %',
+        'Open KitSold value',
         'Open KitSold %',
+        'Open Registration value',
         'Open Registration %',
+        'Close Enquiry value',
         'Close Enquiry %',
+        'Close Walkin value',
         'Close Walkin %',
+        'Close KitSold value',
         'Close KitSold %',
+        'Close Registration value',
         'Close Registration %',
+        'Close Admission value',
         'Close Admission %',
         'Total OpenInquiries',
         'Total ClosedInquiries',

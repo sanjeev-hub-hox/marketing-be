@@ -113,7 +113,7 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
-    path: 'enquiry/getshortUrl/:id',
+    path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
   },
 ];

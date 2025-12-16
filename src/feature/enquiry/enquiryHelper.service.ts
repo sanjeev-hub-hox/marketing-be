@@ -1452,21 +1452,49 @@ export class EnquiryHelper {
       }
     });
 
-    // Recompute percentage using merged totals
+    // totals for percentage denominator
+    const totals = Object.values(map).reduce(
+      (acc: any, item: any) => {
+        acc.open_enquiry += item.open.enquiry || 0;
+        acc.open_walkin += item.open.walkin || 0;
+        acc.open_kit_sold += item.open.kit_sold || 0;
+        acc.open_registration += item.open.registration || 0;
+
+        acc.closed_enquiry += item.closed.enquiry || 0;
+        acc.closed_walkin += item.closed.walkin || 0;
+        acc.closed_kit_sold += item.closed.kit_sold || 0;
+        acc.closed_registration += item.closed.registration || 0;
+        acc.closed_admission += item.closed.admission || 0;
+
+        return acc;
+      },
+      {
+        open_enquiry: 0,
+        open_walkin: 0,
+        open_kit_sold: 0,
+        open_registration: 0,
+        closed_enquiry: 0,
+        closed_walkin: 0,
+        closed_kit_sold: 0,
+        closed_registration: 0,
+        closed_admission: 0,
+      }
+    );
+
+    // Recompute percentage using respective totals
     const result = Object.values(map).map((item: any) => {
-      const total = item.totalInquiry || 0;
-      const pct = (n: number) => (!total ? 0 : Math.round((n / total) * 10000) / 100);
+      const pct = (n: number, d: number) => (!d ? 0 : Math.round((n / d) * 10000) / 100);
 
-      item.open.enquiry_pct = pct(item.open.enquiry);
-      item.open.walkin_pct = pct(item.open.walkin);
-      item.open.kit_sold_pct = pct(item.open.kit_sold);
-      item.open.registration_pct = pct(item.open.registration);
+      item.open.enquiry_pct = pct(item.open.enquiry, totals.open_enquiry);
+      item.open.walkin_pct = pct(item.open.walkin, totals.open_walkin);
+      item.open.kit_sold_pct = pct(item.open.kit_sold, totals.open_kit_sold);
+      item.open.registration_pct = pct(item.open.registration, totals.open_registration);
 
-      item.closed.enquiry_pct = pct(item.closed.enquiry);
-      item.closed.walkin_pct = pct(item.closed.walkin);
-      item.closed.kit_sold_pct = pct(item.closed.kit_sold);
-      item.closed.registration_pct = pct(item.closed.registration);
-      item.closed.admission_pct = pct(item.closed.admission);
+      item.closed.enquiry_pct = pct(item.closed.enquiry, totals.closed_enquiry);
+      item.closed.walkin_pct = pct(item.closed.walkin, totals.closed_walkin);
+      item.closed.kit_sold_pct = pct(item.closed.kit_sold, totals.closed_kit_sold);
+      item.closed.registration_pct = pct(item.closed.registration, totals.closed_registration);
+      item.closed.admission_pct = pct(item.closed.admission, totals.closed_admission);
 
       return item;
     });

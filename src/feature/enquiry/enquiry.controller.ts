@@ -2344,9 +2344,9 @@ export class EnquiryController {
     @Res() res: Response,
     @Param('id') id: any,
   ) {
-
+    console.log('id___', id);
     const result = await this.shortUrlService.getByHashUrl(id);
-
+    console.log('result___', result);
     try {
       return this.responseService.sendResponse(
         res,
