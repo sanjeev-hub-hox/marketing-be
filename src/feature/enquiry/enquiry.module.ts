@@ -36,6 +36,7 @@ import { AdmissionFeeQueueSubscriber } from './queueSubscriber';
 import { ParentLoginLogModule } from '../parentLoginLogs/parentLoginLogs.module';
 import { JobShadulerModule } from '../jobShaduler/jobShaduler.module';
 import { ReferralReminderModule } from '../referralReminder/referralReminder.module';
+import { ReferralReminderCronService } from '../cron/referralReminderCron.service';
 import { ShortUrlModule } from '../shortUrl/shorturl.module';
 
 
@@ -80,6 +81,7 @@ import { ShortUrlModule } from '../shortUrl/shorturl.module';
     CsvService,
     AdmissionFeeQueueSubscriber,
     EnquiryCron,
+    ReferralReminderCronService,
   ],
   controllers: [EnquiryController],
   exports: [EnquiryService, EnquiryRepository, EnquiryHelper],

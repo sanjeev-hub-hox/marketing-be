@@ -1384,35 +1384,51 @@ export class EnquiryHelper {
     });
     return sorted[0]?.enquiry;
   }
-  mergeVisibleRows(rows: any[]): any[] {
+  mergeVisibleRows(rows: any[], groupBy: string[] = []): any[] {
     const map: Record<string, any> = {};
+
+    const defaultGroupBy = [
+      'cluster',
+      'school',
+      'course',
+      'board',
+      'grade',
+      'stream',
+      'source',
+      'subSource',
+    ];
+
+    const effectiveGroupBy = Array.isArray(groupBy) && groupBy.length ? groupBy : defaultGroupBy;
+
+    const pickValue = (r: any, field: string) => {
+      if (!effectiveGroupBy.includes(field)) {
+        return 'NA';
+      }
+      const v = r[field];
+      return typeof v === 'string' ? v.trim() : v ?? 'NA';
+    };
 
     rows.forEach((r) => {
       // Unique key for visible grouping
-      const key = [
-        r.cluster ?? 'NA',
-        r.school?.trim() ?? '',
-        r.course?.trim() ?? '',
-        r.board?.trim() ?? '',
-        r.grade?.trim() ?? '',
-        r.stream?.trim() ?? '',
-        r.source?.trim() ?? '',
-        r.subSource?.trim() ?? '',
-      ]
+      const key = effectiveGroupBy
+        .map((g) => {
+          const v = r[g];
+          return typeof v === 'string' ? v.trim() : v ?? 'NA';
+        })
         .join('|')
         .toLowerCase();
 
       // First occurrence → initialize
       if (!map[key]) {
         map[key] = {
-          cluster: r.cluster ?? 'NA',
-          school: r.school ?? 'NA',
-          course: r.course ?? 'NA',
-          board: r.board ?? 'NA',
-          grade: r.grade ?? 'NA',
-          stream: r.stream ?? 'NA',
-          source: r.source ?? 'NA',
-          subSource: r.subSource ?? 'NA',
+          cluster: pickValue(r, 'cluster'),
+          school: pickValue(r, 'school'),
+          course: pickValue(r, 'course'),
+          board: pickValue(r, 'board'),
+          grade: pickValue(r, 'grade'),
+          stream: pickValue(r, 'stream'),
+          source: pickValue(r, 'source'),
+          subSource: pickValue(r, 'subSource'),
 
           totalInquiry: r.totalInquiry ?? 0,
           totalOpenInquiries: r.totalOpenInquiries ?? 0,

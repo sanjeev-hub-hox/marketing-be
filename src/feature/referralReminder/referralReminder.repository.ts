@@ -33,4 +33,6 @@ export class ReminderRepository {
   async deleteById(id: Types.ObjectId): Promise<void> {
     await this.reminderModel.findByIdAndDelete(id).exec();
   }
+
+  
 }

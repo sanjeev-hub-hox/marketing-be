@@ -53,6 +53,7 @@ export class EnquiryStageUpdateService {
     status: string;
   }[];
   request: Request;
+  smsReminderService: any;
 
   constructor(
     private enquiryRepository: EnquiryRepository,
@@ -258,6 +259,143 @@ export class EnquiryStageUpdateService {
             });
             
             try {
+
+              const {
+                subject_details,
+                student_id,
+                opted_for_transport,
+                transport_details,
+              } = await this.admissionRepository.getOne({
+                enquiry_id: this.enquiryDetails._id,
+              });
+
+              this.loggerService.log(
+                `Admission Details :: ${JSON.stringify({ subject_details, student_id })}`,
+              );
+
+              if (!student_id) {
+                this.loggerService.log(
+                  `Proceeding to call create student profile as student id is ${student_id}`,
+                );
+                const studentDetails =
+                  await this.admissionService.addStudentDetail(
+                    this.enquiryDetails._id,
+                    this.request,
+                  );
+
+                // Push the mapping of subjects to students
+                const studentId =
+                  studentDetails?.student_profile?.id ?? studentDetails?.id;
+                const submitStudentMappingDataPromises = [];
+                subject_details.forEach((subject) => {
+                  console.log("subject data-", {
+                          subject_id: subject.subject_id,
+                          student_id: studentId,
+                          academic_year:
+                            studentDetails?.student_profile?.academic_year_id ??
+                            subject?.academic_year_id,
+                          selected_on: moment(new Date()).format('YYYY-MM-DD'),
+                          selected_for: `${+this.enquiryDetails.academic_year.value.split('-')[0] + 1}-01-01`,
+                          grade_id:
+                            studentDetails?.student_profile?.crt_grade_id ??
+                            studentDetails?.crt_grade_id,
+                        },);
+                  submitStudentMappingDataPromises.push(
+                    this.mdmService.postDataToAPI(
+                      MDM_API_URLS.SUBMIT_SUBJECT_DETAILS,
+                      {
+                        data: {
+                          subject_id: subject.subject_id,
+                          student_id: studentId,
+                          academic_year:
+                            studentDetails?.student_profile?.academic_year_id ??
+                            subject?.academic_year_id,
+                          selected_on: moment(new Date()).format('YYYY-MM-DD'),
+                          selected_for: `${+this.enquiryDetails.academic_year.value.split('-')[0] + 1}-01-01`,
+                          grade_id:
+                            studentDetails?.student_profile?.crt_grade_id ??
+                            studentDetails?.crt_grade_id,
+                        },
+                      },
+                    ),
+                  );
+                });
+
+                // Call to submit the documents submitted against the student enquiry
+                submitStudentMappingDataPromises.push(
+                  this.axiosService
+                    .setBaseUrl(
+                      this.configService.get<string>('ADMIN_PANEL_URL'),
+                    )
+                    .setUrl(ADMIN_API_URLS.MAP_STUDENT_DOCUMENTS)
+                    .setMethod(EHttpCallMethods.POST)
+                    .setHeaders({
+                      Authorization: this.request.headers.authorization,
+                    } as AxiosRequestHeaders)
+                    .setBody({
+                      student_id: studentId,
+                      documents: this.enquiryDetails.documents,
+                    })
+                    .sendRequest(),
+                );
+
+                // Call transport service API to update the student id against student stop mapping
+                if (
+                  opted_for_transport &&
+                  transport_details &&
+                  this.configService.get<string>('NODE_ENV') !== 'production'
+                ) {
+                  await this.axiosService
+                    .setBaseUrl(
+                      this.configService.get<string>('TRANSPORT_PANEL_URL'),
+                    )
+                    .setUrl(
+                      TRANSPORT_PANEL_URL.UPDATE_STUDENT_STOP_MAPPING(
+                        this.enquiryDetails.enquiry_number,
+                      ),
+                    )
+                    .setMethod(EHttpCallMethods.PATCH)
+                    .setHeaders({
+                      Authorization: this.request.headers.authorization,
+                    } as AxiosRequestHeaders)
+                    .setBody({
+                      student_id: studentId,
+                    })
+                    .sendRequest();
+                }
+
+                await Promise.all(submitStudentMappingDataPromises);
+              } else {
+                this.loggerService.log(
+                  `Student details have already been pushed against enquiry - ${this.enquiryDetails._id.toString()}`,
+                );
+              }
+
+              // Afer student is created marking the Admission or Provisional Approval stage completed
+              const admissionType = this.enquiryHelperService.getAdmissionType(
+                this.enquiryDetails.documents,
+              );
+              this.enquiryStages[this.nextStageIndex].status =
+                admissionType === EEnquiryAdmissionType.ADMISSION
+                  ? EEnquiryStageStatus.ADMITTED
+                  : EEnquiryStageStatus.PROVISIONAL_ADMISSION;
+
+              // below function sends notification
+              const globalIds = [];
+              const employeeId = [];
+
+              const { parent_details, other_details, assigned_to_id } =
+                this.enquiryDetails;
+
+              globalIds.push(
+                other_details?.parent_type === 'Guardian'
+                  ? parent_details?.guardian_details?.global_id
+                  : other_details?.parent_type === 'Father'
+                    ? parent_details?.father_details?.global_id
+                    : parent_details?.mother_details?.global_id,
+              );
+              employeeId.push(assigned_to_id);
+
               // Fetch fresh enquiry data
               const enquiryData = await this.enquiryRepository.getById(
                 new Types.ObjectId(this.enquiryDetails._id)
@@ -326,13 +464,11 @@ export class EnquiryStageUpdateService {
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                     let recepientDetails = this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
                     
-                    // console.log('recepientDetails_____', recepientDetails);
-
                     //! based on the type of recepient we are sending sms for now its
                     //! parent and refferal
                     for (const recipient of recepientDetails) {
                       // ✅ Build custom URL for each recipient type
-                      const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent'? 'referral' : 'refferer'}`;
+                      const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'referrer'}`;
 
                       //! creating custom url for each recipient
                       let createUrl = await this.urlService.createUrl({url: customUrl})
@@ -396,6 +532,10 @@ export class EnquiryStageUpdateService {
                   token,
                   platform
                 );
+
+                // Send SMS notifications
+                await this.smsReminderService.sendInitialSms(enquiryData);
+                
                 this.loggerService.log(`Initial referral notifications sent successfully`);
               } catch (error) {
                 this.loggerService.error(

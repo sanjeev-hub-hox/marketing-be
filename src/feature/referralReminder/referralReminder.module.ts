@@ -9,6 +9,10 @@ import { EnquiryModule } from '../enquiry/enquiry.module';
 import { GlobalModule } from '../../global/global.module';
 import { VerificationTrackerService } from './verificationTracker.service';
 import { ReferralReminderScheduler } from './referralReminder.scheduler';
+import { SmsReminderService } from './smsReminder.service';
+import { ReferralReminderCronService } from '../cron/referralReminderCron.service'; 
+import { ShortUrlModule } from '../shortUrl/shorturl.module';
+
 
 @Module({
   imports: [
@@ -18,6 +22,7 @@ import { ReferralReminderScheduler } from './referralReminder.scheduler';
     ScheduleModule.forRoot(),
     forwardRef(() => EnquiryModule),
     GlobalModule,
+    ShortUrlModule
   ],
   providers: [
     ReferralReminderService,
@@ -25,7 +30,9 @@ import { ReferralReminderScheduler } from './referralReminder.scheduler';
     // KafkaProducerService,
     VerificationTrackerService,
     ReferralReminderScheduler,
+    SmsReminderService,
+    ReferralReminderCronService 
   ],
-  exports: [ReferralReminderService, ReminderRepository, VerificationTrackerService],
+  exports: [ReferralReminderService, ReminderRepository, SmsReminderService, VerificationTrackerService],
 })
 export class ReferralReminderModule {}

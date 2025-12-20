@@ -107,8 +107,11 @@ import { transporter } from './enquiryMailService';
 import { JobShadulerService } from '../jobShaduler/jobShaduler.service';
 // import { AppRegistrationService } from '../registration/app/appRegistration.service';
 import { ReferralReminderService } from '../referralReminder/referralReminder.service';
+import { VerificationTrackerService } from '../referralReminder/verificationTracker.service';
+
 @Injectable()
 export class EnquiryService {
+  smsReminderService: any;
   constructor(
     private enquiryRepository: EnquiryRepository,
     private jobShadulerService: JobShadulerService,
@@ -136,6 +139,7 @@ export class EnquiryService {
     private csvService: CsvService,
     private emailService: EmailService,
     private referralReminderService: ReferralReminderService,
+    private verificationTrackerService: VerificationTrackerService,
     @Inject('REDIS_INSTANCE') private redisInstance: RedisService,
     @InjectQueue('admissionFees') private admissionFeeQueue: Queue,
   ) {
@@ -454,13 +458,23 @@ export class EnquiryService {
     }
   }
 
-  async getSuccessfulReferrals() {
+  async getAllReferrals() {
     try {
       const enquiryDocs = await this.enquiryRepository.getMany(
         {
           $or: [
             { 'other_details.referrer': { $exists: true, $ne: null } },
-            { 'other_details.referral': { $exists: true, $ne: null } }
+            { 'other_details.referral': { $exists: true, $ne: null } },
+            // Parent referral
+            { 'other_details.enquiry_parent_source_id': { $exists: true, $ne: null } },
+            // Employee referral
+            { 'other_details.enquiry_employee_source_id': { $exists: true, $ne: null } },
+            // Pre-School referral (both locations)
+            { 'enquiry_school_source.id': { $exists: true, $ne: null } },
+            { 'other_details.enquiry_school_source_id': { $exists: true, $ne: null } },
+            // Corporate referral (both locations)
+            { 'enquiry_corporate_source.id': { $exists: true, $ne: null } },
+            { 'other_details.enquiry_corporate_source_id': { $exists: true, $ne: null } }
           ]
         },
         {
@@ -473,6 +487,8 @@ export class EnquiryService {
           other_details: 1,
           enquiry_source: 1,
           enquiry_sub_source: 1,
+          enquiry_school_source: 1,     // Add this
+          enquiry_corporate_source: 1,  // Add this
           board: 1,
           assigned_to: 1
         }
@@ -482,21 +498,33 @@ export class EnquiryService {
         const enquiryid = enq._id;
         const studentName = `${enq.student_details?.first_name || ''} ${enq.student_details?.last_name || ''}`.trim();
 
-        const parentName =
-          enq.parent_details?.father_details
-            ? `${enq.parent_details.father_details.first_name || ''} ${enq.parent_details.father_details.last_name || ''}`
-            : enq.parent_details?.mother_details
-              ? `${enq.parent_details.mother_details.first_name || ''} ${enq.parent_details.mother_details.last_name || ''}`
-              : enq.parent_details?.guardian_details
-                ? `${enq.parent_details.guardian_details.first_name || ''} ${enq.parent_details.guardian_details.last_name || ''}`
-                : null;
+        const parentName = () => {
+          switch (enq.other_details?.parent_type?.toLowerCase()) {
+            case 'father':
+              return `${enq.parent_details?.father_details?.first_name || ''} ${enq.parent_details?.father_details?.last_name || ''}`.trim() || null;
+            case 'mother':
+              return `${enq.parent_details?.mother_details?.first_name || ''} ${enq.parent_details?.mother_details?.last_name || ''}`.trim() || null;
+            case 'guardian':
+              return `${enq.parent_details?.guardian_details?.first_name || ''} ${enq.parent_details?.guardian_details?.last_name || ''}`.trim() || null;
+            default:
+              return null;
+          }
+        }
 
-        const parentNumber =
-          enq.parent_details?.father_details?.mobile ||
-          enq.parent_details?.mother_details?.mobile ||
-          enq.parent_details?.guardian_details?.mobile ||
-          null;
+        const parentNumber = () => {
+          switch (enq.other_details?.parent_type?.toLowerCase()) {
+            case 'father':
+              return enq.parent_details?.father_details?.mobile || null;
+            case 'mother':
+              return enq.parent_details?.mother_details?.mobile || null;
+            case 'guardian':
+              return enq.parent_details?.guardian_details?.mobile || null;
+            default:
+              return null;
+          }
+        }
 
+        const enrollmentNumber = enq.student_details?.enrolment_number || null;
         const academicYear = enq.academic_year?.value || null;
         const school = enq.school_location?.value || null;
         const grade = enq.student_details?.grade?.value || null;
@@ -506,21 +534,55 @@ export class EnquiryService {
         const enquirySubSource = enq.enquiry_sub_source?.value || null;
 
         const od = enq?.other_details || {};
-        const sourceNameNumber =
-          (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value} ${od.enquiry_parent_source_enquirynumber ?? ''}`) ??
-          (od.enquiry_corporate_source_value && `${od.enquiry_corporate_source_value} ${od.enquiry_corporate_source_number ?? ''}`) ??
-          (od.enquiry_employee_source_name && `${od.enquiry_employee_source_name} ${od.enquiry_employee_source_number ?? ''}`) ??
-          (od.enquiry_school_source_value && `${od.enquiry_school_source_value} ${od.enquiry_school_source_number ?? ''}`) ??
-          '';
+        
+        // Determine referrer details based on referral type (following getReferrerRecipient logic)
+        let sourceName = '';
+        let referrerPhone = null;
+        let referralPhone = parentNumber();
+        
+        // 1. Check for Employee Referral
+        if (od.enquiry_employee_source_id) {
+          sourceName = od.enquiry_employee_source_name || 'Employee';
+          referrerPhone = od.enquiry_employee_source_number;
+        }
+        // 2. Check for Pre-School Referral (primary location)
+        else if (enq.enquiry_school_source?.id) {
+          sourceName = enq.enquiry_school_source.value || 'Preschool';
+          referrerPhone = enq.enquiry_school_source.spoc_mobile_no;
+        }
+        // 3. Check for Pre-School Referral (fallback in other_details)
+        else if (od.enquiry_school_source_id) {
+          sourceName = od.enquiry_school_source_value || 'Preschool';
+          referrerPhone = od.enquiry_school_source_number;
+        }
+        // 4. Check for Corporate Referral (primary location)
+        else if (enq.enquiry_corporate_source?.id) {
+          sourceName = enq.enquiry_corporate_source.value || 'Corporate';
+          referrerPhone = enq.enquiry_corporate_source.spoc_mobile_no;
+        }
+        // 5. Check for Corporate Referral (fallback in other_details)
+        else if (od.enquiry_corporate_source_id) {
+          sourceName = od.enquiry_corporate_source_value || 'Corporate';
+          referrerPhone = od.enquiry_corporate_source_number;
+        }
+        // 6. Default to parent/other referral types
+        else {
+          sourceName =
+            (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value}`) ||
+            '';
+          referrerPhone = od.referrer?.phoneNumber || null;
+          referralPhone = od.referral?.phoneNumber || null;
+        }
 
-        const referralStatus = this.calculateReferralStatus(enq, parentNumber);
+        const referralStatus = this.calculateReferralStatus(enq, parentNumber());
 
         return {
           enquiryid: enquiryid,
           student_name: studentName,
           enquiry_number: enq.enquiry_number,
-          parent_name: parentName,
-          parent_number: parentNumber,
+          enrollment_number: enrollmentNumber,
+          parent_name: parentName(),
+          parent_number: parentNumber(),
           academic_year: academicYear,
           school: school,
           grade: grade,
@@ -528,21 +590,25 @@ export class EnquiryService {
           leadOwner: assignedTo,
           enquirySource: enquirySource,
           enquirySubSource: enquirySubSource,
-          sourceNameNumber: sourceNameNumber,
+          sourceName: sourceName,
           status: referralStatus,
-          referrerPhone: od.referrer?.phoneNumber || null,
-          referralPhone: od.referral?.phoneNumber || null,
+          referrerPhone: referrerPhone,
+          referralPhone: referralPhone,
           referrerVerified: od.referrer?.verified || false,
           referralVerified: od.referral?.verified || false,
           referrerManuallyVerified: od.referrer?.manuallyVerified || false,
           referralManuallyVerified: od.referral?.manuallyVerified || false,
+          referrerManuallyRejected: od.referrer?.manuallyRejected || false,
+          referralManuallyRejected: od.referral?.manuallyRejected || false,
+          referrerRejectionReason: od.referrer?.manualRejectionReason || null,
+          referralRejectionReason: od.referral?.manualRejectionReason || null,
         };
       });
 
       return result;
 
     } catch (error) {
-      console.error('Error fetching successful referrals:', error);
+      console.error('Error fetching all referrals:', error);
       throw error;
     }
   }
@@ -634,7 +700,10 @@ export class EnquiryService {
         throw new Error('Enquiry not found');
       }
 
+      
       const od = enquiry.other_details || {};
+      console.log('enquiry_data___', od);
+      console.log('enquiry_data___', od.referrer);
       const updateData: any = { ...od };
 
       const manualVerificationData = {
@@ -650,10 +719,6 @@ export class EnquiryService {
 
       // Manually verify referrer
       if (verificationType === 'referrer' || verificationType === 'both') {
-        if (!od.referrer) {
-          throw new Error('Referrer information not found');
-        }
-
         updateData.referrer = {
           ...od.referrer,
           ...manualVerificationData
@@ -661,10 +726,7 @@ export class EnquiryService {
       }
 
       // Manually verify referral
-      if (verificationType === 'referral' || verificationType === 'both') {
-        if (!od.referral) {
-          throw new Error('Referral information not found');
-        }
+      if (verificationType === 'referral' || verificationType === 'referrer' || verificationType === 'both') {
 
         updateData.referral = {
           ...od.referral,
@@ -686,6 +748,54 @@ export class EnquiryService {
 
     } catch (error) {
       console.error('Error in manual verification:', error);
+      throw error;
+    }
+  }
+
+  async rejectReferralManually(enquiryId: string, reason: string) {
+    try {
+      const objectId = new Types.ObjectId(enquiryId);
+      const enquiry = await this.enquiryRepository.getById(objectId);
+
+      if (!enquiry) {
+        throw new Error('Enquiry not found');
+      }
+
+      const od = enquiry.other_details || {};
+      const updateData: any = { ...od };
+
+      // Reject referrer
+      if (od.referrer) {
+        updateData.referrer = {
+          ...od.referrer,
+          manuallyRejected: true,
+          manuallyRejectedAt: new Date(),
+          manualRejectionReason: reason
+        };
+      }
+
+      // Reject referral
+      if (od.referral) {
+        updateData.referral = {
+          ...od.referral,
+          manuallyRejected: true,
+          manuallyRejectedAt: new Date(),
+          manualRejectionReason: reason
+        };
+      }
+
+      await this.enquiryRepository.updateById(objectId, {
+        other_details: updateData
+      });
+
+      return {
+        success: true,
+        message: 'Manual rejection successful.',
+        reason
+      };
+
+    } catch (error) {
+      console.error('Error in manual rejection:', error);
       throw error;
     }
   }
@@ -881,7 +991,8 @@ export class EnquiryService {
       { other_details: updatedDetails }
     );
 
-    await this.referralReminderService.markAsVerified(enquiryId, action);
+    await this.verificationTrackerService.markAsVerified(enquiryId, action);
+    await this.verificationTrackerService.markAsVerified(enquiryId, action);
 
     return { message: `${action} verified successfully.` };
   }
@@ -2819,6 +2930,7 @@ export class EnquiryService {
     
     const pageNumber = page || 1;
     const pageSize = size ? parseInt(size as any, 10) : 10;
+    const skip = (pageNumber - 1) * pageSize;
 
     const createdByDetails = extractCreatedByDetailsFromBody(req);
     const { permissions } = await getSessionData(req, this.redisInstance);
@@ -2827,7 +2939,6 @@ export class EnquiryService {
         permission.toLowerCase() === ALL_LEADS_PERMISSION.toLowerCase(),
     );
 
-    const skip = (pageNumber - 1) * pageSize;
     const { user_id } = createdByDetails;
     let customFilter = {};
 
@@ -2864,67 +2975,18 @@ export class EnquiryService {
     const pipeline: PipelineStage[] = [];
 
     // ============================================
-    // STEP 3: REPLACE GLOBAL SEARCH LOGIC
+    // HELPER FUNCTIONS
     // ============================================
-    // OLD CODE (REMOVE THIS):
-    // if (globalSearchText && globalSearchText.trim()) {
-    //   pipeline.push({
-    //     $match: {
-    //       $text: { $search: globalSearchText },
-    //     },
-    //   });
-    // }
+    const escapeRegex = (str: string): string => {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
 
-    // NEW CODE (ADD THIS):
-    if (globalSearchText && globalSearchText.trim()) {
-      const searchText = globalSearchText.trim();
-      const isNumeric = /^\d+$/.test(searchText);
-      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const isEmail = emailPattern.test(searchText);
-      
-      if (isNumeric) {
-        // For mobile numbers - use regex on indexed fields
-        pipeline.push({
-          $match: {
-            $or: [
-              { enquiry_number: { $regex: searchText, $options: 'i' } },
-              { 'parent_details.father_details.mobile': { $regex: searchText } },
-              { 'parent_details.mother_details.mobile': { $regex: searchText } },
-              { 'parent_details.guardian_details.mobile': { $regex: searchText } }
-            ]
-          }
-        });
-      } else if (isEmail) {
-        // For email searches
-        pipeline.push({
-          $match: {
-            $or: [
-              { 'parent_details.father_details.email': { $regex: searchText, $options: 'i' } },
-              { 'parent_details.mother_details.email': { $regex: searchText, $options: 'i' } },
-              { 'parent_details.guardian_details.email': { $regex: searchText, $options: 'i' } }
-            ]
-          }
-        });
-      } else {
-        // For text searches (names) - use MongoDB text search
-        // Text search automatically handles partial matches and is optimized
-        pipeline.push({
-          $match: {
-            $text: { $search: searchText }
-          }
-        });
-        
-        // Add text score for relevance ranking
-        pipeline.push({
-          $addFields: {
-            searchScore: { $meta: "textScore" }
-          }
-        });
-      }
-    }
+    const normalizePhoneNumber = (phone: string): string => {
+      return phone.replace(/[\+\s\-\(\)]/g, '');
+    };
 
     // ============================================
-    // STEP 4: INITIAL MATCH (Keep as is)
+    // STEP 1: INITIAL MATCH
     // ============================================
     const baseMatch = {
       ...(!isSuperAdmissionPermission ? { assigned_to_id: user_id } : {}),
@@ -2934,65 +2996,280 @@ export class EnquiryService {
     pipeline.push({ $match: baseMatch });
 
     // ============================================
-    // STEP 5: REPLACE SORT LOGIC
+    // STEP 2: ENHANCED GLOBAL SEARCH
     // ============================================
-    // OLD CODE (REMOVE THIS):
-    // pipeline.push({
-    //   $sort: {
-    //     created_at: -1,
-    //   },
-    // });
-
-    // NEW CODE (ADD THIS):
-    const sortStage: any = {};
-    
-    if (sortBy) {
-      // Map frontend column names to database fields
-      const sortFieldMap: Record<string, string> = {
-        'enquiryDate': 'created_at',
-        'studentName': 'studentName',
-        'grade': 'student_details.grade.value',
-        'mobileNumber': 'mobileNumber',
-        'stage': 'lastCompletedStage.stage_name',
-        'priority': 'priority',
-        'nextFollowUpDate': 'next_follow_up_at',
-        'school': 'school_location.value',
-        'academicYear': 'academic_year.value',
-        'enquirer': 'enquirer',
-        'status': 'status'
-      };
+    if (globalSearchText && globalSearchText.trim()) {
+      const searchText = globalSearchText.trim();
+      const escapedSearchText = escapeRegex(searchText);
       
-      const dbField = sortFieldMap[sortBy] || 'created_at';
-      sortStage[dbField] = sortOrder === 'desc' ? -1 : 1;
+      // Check search type
+      const normalizedPhone = normalizePhoneNumber(searchText);
+      const isNumeric = /^\d+$/.test(normalizedPhone);
       
-      // Add secondary sort by created_at if not primary sort
-      if (dbField !== 'created_at') {
-        sortStage.created_at = -1;
+      // Enhanced email detection
+      const fullEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const isFullEmail = fullEmailPattern.test(searchText);
+      
+      // Check if it could be a partial email search (contains @ or looks like domain)
+      const containsAt = searchText.includes('@');
+      const isDomainLike = /^[a-zA-Z0-9]+([\-\.]{1}[a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$/.test(searchText);
+      
+      if (isNumeric) {
+        // ============================================
+        // MOBILE NUMBER SEARCH (with normalization)
+        // ============================================
+        const escapedNormalizedSearch = escapeRegex(normalizedPhone);
+        
+        pipeline.push({
+          $match: {
+            $or: [
+              { enquiry_number: { $regex: escapedSearchText, $options: 'i' } },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: {
+                      $replaceAll: {
+                        input: {
+                          $replaceAll: {
+                            input: {
+                              $replaceAll: {
+                                input: {
+                                  $replaceAll: {
+                                    input: { $ifNull: ['$parent_details.father_details.mobile', ''] },
+                                    find: '+',
+                                    replacement: '',
+                                  },
+                                },
+                                find: ' ',
+                                replacement: '',
+                              },
+                            },
+                            find: '-',
+                            replacement: '',
+                          },
+                        },
+                        find: '(',
+                        replacement: '',
+                      },
+                    },
+                    regex: escapedNormalizedSearch,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: {
+                      $replaceAll: {
+                        input: {
+                          $replaceAll: {
+                            input: {
+                              $replaceAll: {
+                                input: {
+                                  $replaceAll: {
+                                    input: { $ifNull: ['$parent_details.mother_details.mobile', ''] },
+                                    find: '+',
+                                    replacement: '',
+                                  },
+                                },
+                                find: ' ',
+                                replacement: '',
+                              },
+                            },
+                            find: '-',
+                            replacement: '',
+                          },
+                        },
+                        find: '(',
+                        replacement: '',
+                      },
+                    },
+                    regex: escapedNormalizedSearch,
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: {
+                      $replaceAll: {
+                        input: {
+                          $replaceAll: {
+                            input: {
+                              $replaceAll: {
+                                input: {
+                                  $replaceAll: {
+                                    input: { $ifNull: ['$parent_details.guardian_details.mobile', ''] },
+                                    find: '+',
+                                    replacement: '',
+                                  },
+                                },
+                                find: ' ',
+                                replacement: '',
+                              },
+                            },
+                            find: '-',
+                            replacement: '',
+                          },
+                        },
+                        find: '(',
+                        replacement: '',
+                      },
+                    },
+                    regex: escapedNormalizedSearch,
+                  },
+                },
+              },
+            ]
+          }
+        });
+      } else if (isFullEmail || containsAt || isDomainLike) {
+        // ============================================
+        // EMAIL SEARCH (Full, Username, or Domain)
+        // ============================================
+        
+        const emailSearchConditions: any[] = [];
+        const emailFields = [
+          'parent_details.father_details.email',
+          'parent_details.mother_details.email',
+          'parent_details.guardian_details.email'
+        ];
+        
+        if (containsAt) {
+          // User typed something with @
+          // Example: "sanjeev@" or "sanjeev@gmail" or "sanjeevmajhi@gmail.com"
+          
+          if (isFullEmail) {
+            // Complete email search - exact match on full email
+            emailFields.forEach((field) => {
+              emailSearchConditions.push({
+                [field]: { $regex: `^${escapedSearchText}$`, $options: 'i' }
+              });
+            });
+          } else {
+            // Partial email with @
+            // Split into username and domain parts
+            const [usernamePart, domainPart] = searchText.split('@');
+            const escapedUsername = escapeRegex(usernamePart);
+            const escapedDomain = domainPart ? escapeRegex(domainPart) : '';
+            
+            if (domainPart) {
+              // Search for: username@domain (both parts provided)
+              // Example: "sanjeev@gmail" matches "sanjeevmajhi@gmail.com"
+              emailFields.forEach((field) => {
+                emailSearchConditions.push({
+                  [field]: { 
+                    $regex: `${escapedUsername}.*@.*${escapedDomain}`, 
+                    $options: 'i' 
+                  }
+                });
+              });
+            } else {
+              // Only username before @
+              // Example: "sanjeev@" matches "sanjeevmajhi@gmail.com"
+              emailFields.forEach((field) => {
+                emailSearchConditions.push({
+                  [field]: { 
+                    $regex: `${escapedUsername}.*@`, 
+                    $options: 'i' 
+                  }
+                });
+              });
+            }
+          }
+        } else if (isDomainLike) {
+          // Domain-only search (no @)
+          // Example: "gmail.com" or "gmail" matches "sanjeevmajhi@gmail.com"
+          emailFields.forEach((field) => {
+            emailSearchConditions.push({
+              [field]: { 
+                $regex: `@.*${escapedSearchText}`, 
+                $options: 'i' 
+              }
+            });
+          });
+        } else {
+          // Username-only search (no @ and not domain-like)
+          // Example: "sanjeev" matches "sanjeevmajhi@gmail.com"
+          emailFields.forEach((field) => {
+            emailSearchConditions.push({
+              [field]: { 
+                $regex: `${escapedSearchText}.*@`, 
+                $options: 'i' 
+              }
+            });
+          });
+        }
+        
+        pipeline.push({
+          $match: {
+            $or: emailSearchConditions
+          }
+        });
+      } else {
+        // ============================================
+        // TEXT SEARCH (Names)
+        // ============================================
+        pipeline.push({
+          $match: {
+            $or: [
+              { enquiry_number: { $regex: escapedSearchText, $options: 'i' } },
+              { 'student_details.first_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'student_details.last_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.father_details.first_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.father_details.last_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.mother_details.first_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.mother_details.last_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.guardian_details.first_name': { $regex: escapedSearchText, $options: 'i' } },
+              { 'parent_details.guardian_details.last_name': { $regex: escapedSearchText, $options: 'i' } },
+              {
+                  
+                $expr: {
+                  $regexMatch: {
+                    input: { $concat: [{ $ifNull: ['$student_details.first_name', ''] }, ' ', { $ifNull: ['$student_details.last_name', ''] }] },
+                    regex: escapedSearchText, // Matches "John Doe" exactly against the full name
+                    options: 'i',
+                  },
+                },
+              },
+              // Father Full Name
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: { $concat: [{ $ifNull: ['$parent_details.father_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.father_details.last_name', ''] }] },
+                    regex: escapedSearchText,
+                    options: 'i',
+                  },
+                },
+              },
+              // Mother Full Name
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: { $concat: [{ $ifNull: ['$parent_details.mother_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.mother_details.last_name', ''] }] },
+                    regex: escapedSearchText,
+                    options: 'i',
+                  },
+                },
+              },
+              // Guardian Full Name
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: { $concat: [{ $ifNull: ['$parent_details.guardian_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.guardian_details.last_name', ''] }] },
+                    regex: escapedSearchText,
+                    options: 'i',
+                  },
+                },
+              }
+            ]
+          }
+        });
       }
-    } else if (globalSearchText && globalSearchText.trim() && !/^\d+$/.test(globalSearchText.trim())) {
-      // If searching text, sort by relevance first
-      sortStage.searchScore = { $meta: "textScore" };
-      sortStage.created_at = -1;
-    } else {
-      // Default sort
-      sortStage.created_at = -1;
-    }
-    
-    // Note: Don't add sort here yet, we'll add it after computed fields
-
-    // ============================================
-    // STEP 6: OPTIMIZE EARLY LIMIT
-    // ============================================
-    // Only limit early if doing simple search without complex filters
-    if (globalSearchText && !filtersArray?.length && !sortBy) {
-      pipeline.push({ 
-        $limit: Math.min(skip + pageSize * 10, 10000) // Limit to reduce data processing
-      });
     }
 
     // ============================================
-    // KEEP ALL EXISTING LOOKUP AND TRANSFORMATION LOGIC
-    // (Lines with $lookup, $addFields, etc. - NO CHANGES)
+    // REST OF YOUR PIPELINE (Keep as is)
     // ============================================
     pipeline.push(
       {
@@ -3095,6 +3372,9 @@ export class EnquiryService {
       },
     );
 
+    // ============================================
+    // STEP 4: ADD ALL COMPUTED FIELDS (Keep as is)
+    // ============================================
     pipeline.push({
       $addFields: {
         enquiryFor: {
@@ -3351,19 +3631,49 @@ export class EnquiryService {
     });
 
     // ============================================
-    // STEP 7: ADD CUSTOM FILTERS
+    // STEP 5: APPLY CUSTOM FILTERS
     // ============================================
     if (Object.keys(customFilter)?.length) {
       pipeline.push({ $match: customFilter });
     }
 
     // ============================================
-    // STEP 8: ADD SORT STAGE HERE (After all computed fields)
+    // STEP 6: ADD SORT (After all computed fields)
     // ============================================
+    const sortStage: any = {};
+    
+    if (sortBy) {
+      // Map frontend column names to database fields
+      const sortFieldMap: Record<string, string> = {
+        'enquiryDate': 'created_at',
+        'studentName': 'studentName', // Now this exists after $addFields
+        'grade': 'grade',
+        'mobileNumber': 'mobileNumber',
+        'stage': 'lastCompletedStage.stage_name',
+        'priority': 'priority',
+        'nextFollowUpDate': 'next_follow_up_at',
+        'school': 'school',
+        'academicYear': 'academicYear',
+        'enquirer': 'enquirer',
+        'status': 'status'
+      };
+      
+      const dbField = sortFieldMap[sortBy] || 'created_at';
+      sortStage[dbField] = sortOrder === 'desc' ? -1 : 1;
+      
+      // Add secondary sort by created_at if not primary sort
+      if (dbField !== 'created_at') {
+        sortStage.created_at = -1;
+      }
+    } else {
+      // Default sort
+      sortStage.created_at = -1;
+    }
+    
     pipeline.push({ $sort: sortStage });
 
     // ============================================
-    // KEEP EXISTING PROJECT AND FACET STAGES
+    // STEP 7: PROJECT AND FACET
     // ============================================
     pipeline.push({
       $project: {
@@ -3397,8 +3707,6 @@ export class EnquiryService {
             else: true,
           },
         },
-        // Keep searchScore if it exists for debugging
-        ...(globalSearchText && !/^\d+$/.test(globalSearchText.trim()) ? { searchScore: 1 } : {}),
       },
     });
 
@@ -3415,7 +3723,6 @@ export class EnquiryService {
             $project: {
               created_at: 0,
               next_follow_up_at: 0,
-              searchScore: 0, // Remove from final output
             },
           },
         ],
@@ -3428,13 +3735,11 @@ export class EnquiryService {
     });
 
     // ============================================
-    // STEP 9: EXECUTE WITH PERFORMANCE MONITORING
+    // STEP 8: EXECUTE
     // ============================================
-    console.log('Pipeline ---> ', JSON.stringify(pipeline));
-
     const populatedEnquiries = await this.enquiryRepository
       .aggregate(pipeline)
-      .allowDiskUse(true)  // Allow disk use for large datasets
+      .allowDiskUse(true)
       .exec();
 
     const [result] = populatedEnquiries;
@@ -3445,7 +3750,7 @@ export class EnquiryService {
     const totalPages = Math.ceil(totalCount / pageSize);
 
     // ============================================
-    // STEP 10: LOG PERFORMANCE
+    // STEP 9: LOG PERFORMANCE
     // ============================================
     const executionTime = Date.now() - startTime;
     if (executionTime > 1500) {
@@ -5257,6 +5562,7 @@ export class EnquiryService {
           enquiry_number: '$enquiryNumber',
           student_first_name: '$student_details.first_name',
           student_last_name: '$student_details.last_name',
+          school_location_value: '$school_location.value'
         },
       },
     ];
@@ -5273,7 +5579,7 @@ export class EnquiryService {
             ' ' +
             (enquiry?.student_last_name ?? '') +
             ' - ' +
-            enquiry.enquiry_number,
+            enquiry.enquiry_number + '('+ (enquiry.school_location_value ?? '')  + ')',
           enr_no: enquiry.enquiry_number,
         };
       })
@@ -9808,7 +10114,7 @@ export class EnquiryService {
     }
 
     // Merge identical visible rows
-    return this.enquiryHelper.mergeVisibleRows(filteredByClusterRows);
+    return this.enquiryHelper.mergeVisibleRows(filteredByClusterRows, filters?.group_by);
   }
 
   async generateAndUploadSourceWiseInquiryStatusCsv(

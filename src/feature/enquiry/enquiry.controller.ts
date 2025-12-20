@@ -39,6 +39,7 @@ import { RequestValidationError } from '../../utils';
 import { RegexValidationPipe } from '../../validation';
 import { EEnquiryEventType } from '../enquiryLog/enquiryLog.type';
 import { JobShadulerService } from '../jobShaduler/jobShaduler.service';
+import { ShortUrlService } from '../shortUrl/shorturl.service';
 import {
   GetEnquiryNumberWithGivenIvtDto,
   UpdateIvtEnquiryStatusDto,
@@ -68,7 +69,6 @@ import {
   UpdateMedicalDetailsDto,
   UpdateMedicalDetailsResponseDto,
   UpdateParentDetailsRequestDto,
-  UpdatePaymentStatusRequestBodyDto,
 } from './dto/apiResponse.dto';
 import { GetMergeDto, PostMergeDto } from './dto/mergeEnquiry.dto';
 import {
@@ -81,7 +81,6 @@ import {
 import { EnquiryService } from './enquiry.service';
 import { EEnquiryStatus } from './enquiry.type';
 import { EnquiryStageUpdateService } from './EnquiryStageUpdate.service';
-import { ShortUrlService } from '../shortUrl/shorturl.service';
 
 @ApiTags('Enquiry')
 @ApiBearerAuth('JWT-auth')
@@ -227,14 +226,14 @@ export class EnquiryController {
     }
   }
 
-  @Get('getSuccessfulReferrals')
-  async getSuccessfulReferrals(
+  @Get('getAllReferrals')
+  async getAllReferrals(
     @Res() res: Response,
     @Param('id')
     id: string,
   ) {
     try {
-      const data = await this.enquiryService.getSuccessfulReferrals();
+      const data = await this.enquiryService.getAllReferrals();
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
@@ -313,20 +312,32 @@ export class EnquiryController {
 
   //! verify referral manulally
   @Post('verifyReferralManually')
-  async verifyReferralManually(@Body() body: {
-    enquiryId: string;
-    verificationType: 'referrer' | 'referral' | 'both';
-    verifiedBy: string;
-    reason?: string;
-  }) {
+  async verifyReferralManually(
+    @Body()
+    body: {
+      enquiryId: string;
+      verificationType: 'referrer' | 'referral' | 'both';
+      verifiedBy: string;
+      reason?: string;
+    },
+  ) {
     return this.enquiryService.verifyReferralManually(
       body.enquiryId,
       body.verificationType,
       body.verifiedBy,
-      body.reason
+      body.reason,
     );
   }
 
+  @Post('rejectReferralManually')
+  async rejectReferralManually(
+    @Body() body: { enquiryId: string; reason?: string },
+  ) {
+    return this.enquiryService.rejectReferralManually(
+      body.enquiryId,
+      body.reason,
+    );
+  }
 
   @Get('admission-approvel/:enquiryNumber')
   async approveAdmission(
@@ -2117,8 +2128,7 @@ export class EnquiryController {
     //   );
     // }
 
-    const result =
-      await this.enquiryService.dailyEnquiryReport(body);
+    const result = await this.enquiryService.dailyEnquiryReport(body);
 
     // await this.redisInstance?.setData(cacheKey, result, 60 * 10);
 
@@ -2144,12 +2154,8 @@ export class EnquiryController {
     type: RequestValidationError,
   })
   @Post('handleReopn')
-  async handleReopn(
-    @Res() res: Response,
-    @Body() reqBody: any
-  ) {
+  async handleReopn(@Res() res: Response, @Body() reqBody: any) {
     try {
-
       const data = await this.enquiryService.checkReopenNeeded(reqBody);
       return this.responseService.sendResponse(
         res,
@@ -2193,8 +2199,7 @@ export class EnquiryController {
     //   );
     // }
 
-    const result =
-      await this.shortUrlService.getByHashUrl(body);
+    const result = await this.shortUrlService.getByHashUrl(body);
 
     // await this.redisInstance?.setData(cacheKey, result, 60 * 10);
 
@@ -2227,8 +2232,8 @@ export class EnquiryController {
     const {
       start_date,
       end_date,
-      filter_by,   // "CC Only", "School Only", "All"
-      group_by,    // comma separated values if sent (not used in this report's grouping)
+      filter_by, // "CC Only", "School Only", "All"
+      group_by, // comma separated values if sent (not used in this report's grouping)
     } = req.query as any;
 
     // helper to coerce query params -> array
@@ -2236,7 +2241,10 @@ export class EnquiryController {
       if (v === undefined || v === null) return undefined;
       if (Array.isArray(v)) return v;
       // accept comma separated string too
-      return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+      return String(v)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     };
 
     const filters: any = {};
@@ -2245,14 +2253,29 @@ export class EnquiryController {
     if (filter_by) filters.filter_by = filter_by;
     // ensure group_by is always an array when present
     if (group_by) {
-      filters.group_by = Array.isArray(group_by) ? group_by : String(group_by).split(',').map((s) => s.trim());
+      filters.group_by = Array.isArray(group_by)
+        ? group_by
+        : String(group_by)
+            .split(',')
+            .map((s) => s.trim());
     }
 
     // Parse common multi-value filters (accept single, array, comma-separated)
-    const maybeArrayKeys = ['cluster', 'school', 'course', 'board', 'grade', 'stream', 'source', 'subSource'];
+    const maybeArrayKeys = [
+      'cluster',
+      'school',
+      'course',
+      'board',
+      'grade',
+      'stream',
+      'source',
+      'subSource',
+    ];
     maybeArrayKeys.forEach((k) => {
       // allow both foo[] and foo
-      const val = toArray((req.query as any)[k] ?? (req.query as any)[`${k}[]`]);
+      const val = toArray(
+        (req.query as any)[k] ?? (req.query as any)[`${k}[]`],
+      );
       if (val && val.length) filters[k] = val;
     });
 
@@ -2284,8 +2307,12 @@ export class EnquiryController {
     }
 
     // console.log("filters=>\n", JSON.stringify(filters, null, 2));
-    const finalRows = await this.enquiryService.sourceWiseInquiryStatusReport_BA(filters);
-    const reportFile = await this.enquiryService.generateAndUploadSourceWiseInquiryStatusCsv(finalRows);
+    const finalRows =
+      await this.enquiryService.sourceWiseInquiryStatusReport_BA(filters);
+    const reportFile =
+      await this.enquiryService.generateAndUploadSourceWiseInquiryStatusCsv(
+        finalRows,
+      );
 
     await this.redisInstance?.setData(cacheKey, reportFile, 720);
 
@@ -2340,10 +2367,7 @@ export class EnquiryController {
     type: RequestValidationError,
   })
   @Get('/getshortUrl/:id')
-  async getshortUrl(
-    @Res() res: Response,
-    @Param('id') id: any,
-  ) {
+  async getshortUrl(@Res() res: Response, @Param('id') id: any) {
     console.log('id___', id);
     const result = await this.shortUrlService.getByHashUrl(id);
     console.log('result___', result);

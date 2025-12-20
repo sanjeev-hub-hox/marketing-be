@@ -116,4 +116,24 @@ export const excludedRoutes = [
     path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
   },
+  {
+    path: '/enquiry/:id/move-to-next-stage',
+    method: RequestMethod.PATCH,
+  },
+  {
+    path: '/enquiry/list/global-search',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/rejectReferralManually',
+    method: RequestMethod.POST,
+  },
+  {
+    path: 'enquiry/getAllReferrals',
+    method: RequestMethod.GET,
+  },
+  {
+    path: 'enquiry/verifyReferralManually',
+    method: RequestMethod.POST,
+  },
 ];
