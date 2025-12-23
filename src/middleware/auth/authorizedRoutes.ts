@@ -122,7 +122,7 @@ export const excludedRoutes = [
   },
   {
     path: '/enquiry/list/global-search',
-    method: RequestMethod.GET,
+    method: RequestMethod.POST,
   },
   {
     path: '/enquiry/rejectReferralManually',
@@ -134,6 +134,10 @@ export const excludedRoutes = [
   },
   {
     path: 'enquiry/verifyReferralManually',
+    method: RequestMethod.POST,
+  },
+  {
+    path: '/enquiry/cc/list',
     method: RequestMethod.POST,
   },
 ];

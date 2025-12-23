@@ -66,6 +66,22 @@ getManyL(
   return query;
 }
 
+  getManyPaginated(
+    filter: Record<string, any>,
+    project: Record<string, number> = {},
+    options: { limit?: number; skip?: number; sort?: Record<string, SortOrder> } = {}
+  ): Promise<Record<string, any>[]> {
+    let query = this.enquiryModel.find(filter, project).lean();
+
+    if (options.skip) query = query.skip(options.skip);
+    if (options.limit) query = query.limit(options.limit);
+    if (options.sort) {
+      query = query.sort(options.sort as { [key: string]: SortOrder });
+    }
+
+    return query.exec();
+  }
+
 
 
   getManyWithId(

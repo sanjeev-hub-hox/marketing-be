@@ -16,7 +16,8 @@ export class ShortUrlSchema {
   @Prop({
     type: Date,
     default: Date.now,
-    expires: 60 * 60 * 24 * 30, // 30 days in seconds
+    // expires: 60 * 60 * 24 * 30, // 30 days in seconds
+    expires: 60 * 60 * 24 * 15, // 15 days in seconds
   })
   expireAt: Date;
 }

@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   ValidateNested,
+  Min,
 } from 'class-validator';
 
 export class UpdateAdmissionDto {
@@ -119,6 +120,26 @@ export class UpdateAcStudentGuardianDto {
   @IsString()
   @IsOptional()
   ParentEmail?: string;
+}
+
+export class GlobalSearchEnquiryDto {
+  @ApiProperty({ required: false, default: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  page?: number = 1;
+
+  @ApiProperty({ required: false, default: 10 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  size?: number = 10;
+
+  @ApiProperty({ required: true })
+  @IsString()
+  search: string;
 }
 
 export class UpdateAcStudentGuardianArrayDto {

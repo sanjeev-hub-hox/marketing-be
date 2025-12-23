@@ -77,6 +77,7 @@ import {
   MapSiblingsDto,
   UpdateAcStudentGuardianArrayDto,
   UpdateAdmissionDto,
+  GlobalSearchEnquiryDto,
 } from './dto/updateAdmission.dto';
 import { EnquiryService } from './enquiry.service';
 import { EEnquiryStatus } from './enquiry.type';
@@ -229,11 +230,12 @@ export class EnquiryController {
   @Get('getAllReferrals')
   async getAllReferrals(
     @Res() res: Response,
-    @Param('id')
-    id: string,
+    @Query('page') page: number,
+    @Query('pageSize') pageSize: number,
+    @Query('search') search: string,
   ) {
     try {
-      const data = await this.enquiryService.getAllReferrals();
+      const data = await this.enquiryService.getAllReferrals(page, pageSize, search);
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
@@ -316,7 +318,7 @@ export class EnquiryController {
     @Body()
     body: {
       enquiryId: string;
-      verificationType: 'referrer' | 'referral' | 'both';
+      verificationType: 'both';
       verifiedBy: string;
       reason?: string;
     },
@@ -331,11 +333,11 @@ export class EnquiryController {
 
   @Post('rejectReferralManually')
   async rejectReferralManually(
-    @Body() body: { enquiryId: string; reason?: string },
+    @Body() body: { enquiryId: string; rejectionReason?: string },
   ) {
     return this.enquiryService.rejectReferralManually(
       body.enquiryId,
-      body.reason,
+      body.rejectionReason,
     );
   }
 
@@ -1525,32 +1527,28 @@ export class EnquiryController {
   }
 
   @ApiOkResponse({
-    status: HttpStatus.OK,
-    description: 'Success response',
-  })
-  @ApiBadRequestResponse({
-    status: HttpStatus.OK,
-    description: 'Invalid data validation error response',
-    type: RequestValidationError,
-  })
-  @Get('list/global-search')
-  @ApiQuery({ name: 'page', required: false, type: String })
-  @ApiQuery({ name: 'size', required: false, type: String })
+  status: HttpStatus.OK,
+  description: 'Success response',
+})
+@ApiBadRequestResponse({
+  status: HttpStatus.BAD_REQUEST,
+  description: 'Invalid data validation error response',
+  type: RequestValidationError,
+})
+@Post('list/global-search')
   async searchEnquiryListGloballyByText(
     @Req() req: Request,
     @Res() res: Response,
-    @Query('page') page: number,
-    @Query('size') size: number,
-    @Query('search') globalSearchText: string,
+    @Body() searchDto: GlobalSearchEnquiryDto,
   ) {
     try {
       this.loggerService.log(`Global search enquiry list api called`);
       const enquiryDetails =
         await this.enquiryService.globalSearchEnquiryListing(
           req,
-          page,
-          size,
-          globalSearchText,
+          searchDto.page,
+          searchDto.size,
+          searchDto.search,
         );
       return this.responseService.sendResponse(
         res,
@@ -2143,6 +2141,130 @@ export class EnquiryController {
       throw err;
     }
   }
+
+  @Get('metabase/student-profile-details')
+  async getStudentProfileDetails(@Res() res: Response) {
+    try {
+      const result = await this.enquiryService.getMetabaseStudentProfileDetails();
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'AC Student Profile Details from Metabase',
+      );
+    } catch (err) {
+      return this.responseService.errorResponse(
+        res,
+        err.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        err.message || 'Failed to fetch data from Metabase',
+      );
+    }
+  }
+
+  @Get('metabase/student-profile-summary')
+  async getStudentProfileSummary(@Res() res: Response) {
+    try {
+      const result = await this.enquiryService.getMetabaseStudentProfileSummary();
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'AC Student Profile Summary from Metabase',
+      );
+    } catch (err) {
+      return this.responseService.errorResponse(
+        res,
+        err.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        err.message || 'Failed to fetch data from Metabase',
+      );
+    }
+  }
+
+ @Get('/ay/outside-tat-followup-report')
+  async getReportForOutsideTatFollowup(
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    // parse filters from query (keeps GET-compatible)
+    const {
+      start_date,
+      end_date,
+      filter_by,   // "CC Only", "School Only", "All"
+      group_by,    // comma separated values if sent (not used in this report's grouping)
+    } = req.query as any;
+
+    // helper to coerce query params -> array
+    const toArray = (v: any) => {
+      if (v === undefined || v === null) return undefined;
+      if (Array.isArray(v)) return v;
+      // accept comma separated string too
+      return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+    };
+
+    const filters: any = {};
+    if (start_date) filters.start_date = start_date;
+    if (end_date) filters.end_date = end_date;
+    if (filter_by) filters.filter_by = filter_by;
+    // ensure group_by is always an array when present
+    if (group_by) {
+      filters.group_by = Array.isArray(group_by) ? group_by : String(group_by).split(',').map((s) => s.trim());
+    }
+
+    // Parse common multi-value filters (accept single, array, comma-separated)
+    const maybeArrayKeys = ['cluster', 'school', 'enquiryNo', 'enquiryName', 'studentName', 'academicYear', 'contactNo', 'enquiryStage','currentOwner','followUpDate','ageingDays'];
+    maybeArrayKeys.forEach((k) => {
+      // allow both foo[] and foo
+      const val = toArray((req.query as any)[k] ?? (req.query as any)[`${k}[]`]);
+      if (val && val.length) filters[k] = val;
+    });
+
+    const cacheKeyParts = [
+      'outside-tat-followup-report',
+      `start=${filters.start_date || 'NA'}`,
+      `end=${filters.end_date || 'NA'}`,
+      `filter_by=${filters.filter_by || 'All'}`,
+      `group_by=${filters.group_by ? filters.group_by.join('-') : 'default'}`,
+      `cluster=${filters.cluster ? filters.cluster.join('-') : 'NA'}`,
+      `school=${filters.school ? filters.school.join('-') : 'NA'}`,
+      `course=${filters.enquiryNo ? filters.enquiryNo.join('-') : 'NA'}`,
+      `board=${filters.enquiryName ? filters.enquiryName.join('-') : 'NA'}`,
+      `grade=${filters.studentName ? filters.studentName.join('-') : 'NA'}`,
+      `stream=${filters.academicYear ? filters.academicYear.join('-') : 'NA'}`,
+      `source=${filters.contactNo ? filters.contactNo.join('-') : 'NA'}`,
+      `subSource=${filters.enquiryStage ? filters.enquiryStage.join('-') : 'NA'}`,
+      `currentOwner=${filters.currentOwner ? filters.currentOwner.join('-') : 'NA'}`,
+      `followUpDate=${filters.followUpDate ? filters.followUpDate.join('-') : 'NA'}`,
+      `ageingDays=${filters.ageingDays ? filters.ageingDays.join('-') : 'NA'}`,
+    ];
+    const cacheKey = cacheKeyParts.join(':');
+    const cachedData = await this.redisInstance?.getData(cacheKey);
+
+    if (cachedData) {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        cachedData,
+        'Outside TAT details report found from redis',
+      );
+    }
+
+    // console.log("filters=>\n", JSON.stringify(filters, null, 2));
+    const finalRows = await this.enquiryService.outsideTatFollowupReport(filters);
+    const reportFile = await this.enquiryService.generateAndUploadOutsideTatFollowupReportCsv(finalRows);
+    await this.redisInstance?.setData(cacheKey, reportFile, 720);
+
+    try {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        reportFile,
+        'Outside TAT follow up report',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
+
 
   @ApiOkResponse({
     status: HttpStatus.OK,

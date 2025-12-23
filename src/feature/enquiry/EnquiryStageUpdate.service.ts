@@ -259,7 +259,6 @@ export class EnquiryStageUpdateService {
             });
             
             try {
-
               const {
                 subject_details,
                 student_id,

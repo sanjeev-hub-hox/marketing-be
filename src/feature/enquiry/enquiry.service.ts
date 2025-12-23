@@ -25,6 +25,7 @@ import { Request } from 'express';
 import * as fs from 'fs';
 import * as moment from 'moment';
 import { Document, PipelineStage, Types } from 'mongoose';
+import * as xlsx from 'node-xlsx';
 
 import {
   ADMIN_PANEL_URL,
@@ -410,91 +411,222 @@ export class EnquiryService {
 
   // Helper method to calculate referral status
   private calculateReferralStatus(enquiry: any, parentNumber: string): string {
-    const od = enquiry?.other_details || {};
-    const referrer = od.referrer || {};
-    const referral = od.referral || {};
-
-    const parentPhone = this.normalizePhone(parentNumber);
-    const referrerPhone = this.normalizePhone(referrer.phoneNumber);
-    const referralPhone = this.normalizePhone(referral.phoneNumber);
-
-    console.log('Phone Comparison:', {
-      parentPhone,
-      referrerPhone,
-      referralPhone,
-      referrerVerified: referrer.verified,
-      referralVerified: referral.verified
-    });
-
-    // Check if phones match (both must have values to compare)
-    const referrerMatches = referrerPhone && parentPhone && referrerPhone === parentPhone;
-    const referralMatches = referralPhone && parentPhone && referralPhone === parentPhone;
-
-    // Check both verified flag AND phone match
-    const referrerVerifiedAndMatches = referrer.verified === true && referrerMatches;
-    const referralVerifiedAndMatches = referral.verified === true && referralMatches;
-
-    // Check if manually verified (bypasses phone matching requirement)
-    const referrerManuallyVerified = referrer.manuallyVerified === true;
-    const referralManuallyVerified = referral.manuallyVerified === true;
-
-    // Final verification status (either auto-verified with match OR manually verified)
-    const referrerVerified = referrerVerifiedAndMatches || referrerManuallyVerified;
-    const referralVerified = referralVerifiedAndMatches || referralManuallyVerified;
-
-    // Return status based on verification state
+    const od = enquiry.other_details || {};
+    
+    // ✅ PRIORITY 1: Check for manual rejection first
+    if (od.manuallyRejectedData?.manuallyRejected) {
+      return 'Rejected';
+    }
+    
+    // ✅ PRIORITY 2: Check for manual verification (HIGHEST PRIORITY)
+    if (od.manuallyVerifiedData?.manuallyVerified) {
+      return 'Both Verified';
+    }
+    
+    // Rest of your existing logic for automatic verification
+    const referrerVerified = od.referrer?.verified || false;
+    const referralVerified = od.referral?.verified || false;
+    
     if (referrerVerified && referralVerified) {
       return 'Both Verified';
-    } else if (referrerVerified) {
-      return 'Referrer Verified';
-    } else if (referralVerified) {
-      return 'Referral Verified';
-    } else if (referrer.verified === true && !referrerMatches) {
-      return 'Phone Mismatch';
-    } else if (referral.verified === true && !referralMatches) {
-      return 'Phone Mismatch';
-    } else {
-      return 'Pending';
     }
+    
+    if (referrerVerified && !referralVerified) {
+      return 'Referrer Verified';
+    }
+    
+    if (!referrerVerified && referralVerified) {
+      return 'Referral Verified';
+    }
+    
+    // Check for phone mismatch
+    const normalizePhone = (phone: string): string => {
+      if (!phone) return '';
+      return phone.toString().replace(/[\s\-\(\)]/g, '').trim();
+    };
+    
+    const parentPhone = normalizePhone(parentNumber);
+    const referrerPhone = normalizePhone(od.referrer?.phoneNumber || '');
+    const referralPhone = normalizePhone(od.referral?.phoneNumber || '');
+    
+    return 'Pending';
   }
 
-  async getAllReferrals() {
+  async getAllReferrals(page: number = 1, pageSize: number = 10, searchTerm: string = '') {
     try {
-      const enquiryDocs = await this.enquiryRepository.getMany(
+      const pageNum = Number(page) || 1;
+      const pageSizeNum = Number(pageSize) || 10;
+      const skip = (pageNum - 1) * pageSizeNum;
+
+      console.log('search___', searchTerm);
+      
+      // Build search filter
+      const searchFilter = searchTerm ? {
+        $or: [
+          { 'student_details.first_name': { $regex: searchTerm, $options: 'i' } },
+          { 'student_details.last_name': { $regex: searchTerm, $options: 'i' } },
+          { 'parent_details.father_details.first_name': { $regex: searchTerm, $options: 'i' } },
+          { 'parent_details.mother_details.first_name': { $regex: searchTerm, $options: 'i' } },
+          { 'parent_details.guardian_details.first_name': { $regex: searchTerm, $options: 'i' } },
+          { 'admissionDetails.enrolment_number': { $regex: searchTerm, $options: 'i' } },
+        ]
+      } : {};
+
+      // Base filter for referrals
+      const baseFilter = {
+        $and: [ 
+          {
+            $or: [
+              { 'other_details.referrer': { $exists: true, $ne: null } },
+              { 'other_details.referral': { $exists: true, $ne: null } },
+              { 'other_details.enquiry_parent_source_id': { $exists: true, $ne: null } },
+              { 'other_details.enquiry_employee_source_id': { $exists: true, $ne: null } },
+              { 'enquiry_school_source.id': { $exists: true, $ne: null } },
+              { 'other_details.enquiry_school_source_id': { $exists: true, $ne: null } },
+              { 'enquiry_corporate_source.id': { $exists: true, $ne: null } },
+              { 'other_details.enquiry_corporate_source_id': { $exists: true, $ne: null } }
+            ]
+          },
+          {
+            $or: [
+              { 'student_details.enrolment_number': { $exists: true, $ne: null } },
+              {
+                $and: [
+                  { 
+                    'enquiry_stages': { 
+                      $elemMatch: { 
+                        stage_name: 'Payment', 
+                        status: 'Completed' 
+                      } 
+                    } 
+                  },
+                  { 'registration_fees_paid': true }
+                ]
+              }
+            ]
+          }
+        ]
+      };
+
+      // Build aggregation pipeline - FIXED: Added search filter
+      const pipeline: any[] = [
+        { $match: baseFilter },
         {
-          $or: [
-            { 'other_details.referrer': { $exists: true, $ne: null } },
-            { 'other_details.referral': { $exists: true, $ne: null } },
-            // Parent referral
-            { 'other_details.enquiry_parent_source_id': { $exists: true, $ne: null } },
-            // Employee referral
-            { 'other_details.enquiry_employee_source_id': { $exists: true, $ne: null } },
-            // Pre-School referral (both locations)
-            { 'enquiry_school_source.id': { $exists: true, $ne: null } },
-            { 'other_details.enquiry_school_source_id': { $exists: true, $ne: null } },
-            // Corporate referral (both locations)
-            { 'enquiry_corporate_source.id': { $exists: true, $ne: null } },
-            { 'other_details.enquiry_corporate_source_id': { $exists: true, $ne: null } }
-          ]
+          $lookup: {
+            from: 'admission',
+            localField: '_id',
+            foreignField: 'enquiry_id',
+            as: 'admissionDetails',
+          },
+        },
+        // CRITICAL FIX: Apply search filter after lookup
+        ...(searchTerm ? [{ $match: searchFilter }] : []),
+        {
+          $addFields: {
+            enrolment_number: {
+              $cond: {
+                if: {
+                  $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0],
+                },
+                then: {
+                  $let: {
+                    vars: {
+                      admissionRecordWithEnrolmentNumber: {
+                        $filter: {
+                          input: { $ifNull: ['$admissionDetails', []] },
+                          as: 'record',
+                          cond: {
+                            $and: [
+                              { $ne: ['$$record.enrolment_number', null] },
+                              { $ne: ['$$record.student_id', null] },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                    in: {
+                      $cond: {
+                        if: { $gt: [{ $size: '$$admissionRecordWithEnrolmentNumber' }, 0] },
+                        then: {
+                          $arrayElemAt: [
+                            {
+                              $ifNull: [
+                                '$$admissionRecordWithEnrolmentNumber.enrolment_number',
+                                [],
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                        else: null,
+                      },
+                    },
+                  },
+                },
+                else: null,
+              },
+            },
+          },
         },
         {
-          _id: 1,
-          student_details: 1,
-          enquiry_number: 1,
-          parent_details: 1,
-          academic_year: 1,
-          school_location: 1,
-          other_details: 1,
-          enquiry_source: 1,
-          enquiry_sub_source: 1,
-          enquiry_school_source: 1,     // Add this
-          enquiry_corporate_source: 1,  // Add this
-          board: 1,
-          assigned_to: 1
-        }
-      );
+          $project: {
+            _id: 1,
+            student_details: 1,
+            enquiry_number: 1,
+            parent_details: 1,
+            academic_year: 1,
+            school_location: 1,
+            other_details: 1,
+            enquiry_source: 1,
+            enquiry_sub_source: 1,
+            enquiry_school_source: 1,
+            enquiry_corporate_source: 1,
+            board: 1,
+            assigned_to: 1,
+            enrolment_number: 1,
+            createdAt: 1,
+            admissionDetails: 1  // ADDED: Include this for debugging
+          }
+        },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: pageSizeNum }
+      ];
+
+      // Count pipeline
+      const countPipeline = [
+        { $match: baseFilter },
+        {
+          $lookup: {
+            from: 'admission',
+            localField: '_id',
+            foreignField: 'enquiry_id',
+            as: 'admissionDetails',
+          },
+        },
+        ...(searchTerm ? [{ $match: searchFilter }] : []),
+        { $count: 'total' }
+      ];
+
+      console.log('Main Pipeline:', JSON.stringify(pipeline, null, 2));
+      console.log('Count Pipeline:', JSON.stringify(countPipeline));
+      
+      const countResult = await this.enquiryRepository.aggregate(countPipeline);
+      const totalCount = countResult.length > 0 ? countResult[0].total : 0;
+
+      // Get paginated data
+      const enquiryDocs = await this.enquiryRepository.aggregate(pipeline);
+      
+      console.log('Enquiry Docs Found:', enquiryDocs.length);
+      console.log('First Doc Sample:', JSON.stringify(enquiryDocs[0], null, 2));
 
       const result = enquiryDocs.map(enq => {
+        // Add null check at the start
+        if (!enq) {
+          console.error('Null enquiry document found');
+          return null;
+        }
+
         const enquiryid = enq._id;
         const studentName = `${enq.student_details?.first_name || ''} ${enq.student_details?.last_name || ''}`.trim();
 
@@ -524,7 +656,7 @@ export class EnquiryService {
           }
         }
 
-        const enrollmentNumber = enq.student_details?.enrolment_number || null;
+        const enrollmentNumber = enq.enrolment_number || null;
         const academicYear = enq.academic_year?.value || null;
         const school = enq.school_location?.value || null;
         const grade = enq.student_details?.grade?.value || null;
@@ -535,41 +667,27 @@ export class EnquiryService {
 
         const od = enq?.other_details || {};
         
-        // Determine referrer details based on referral type (following getReferrerRecipient logic)
         let sourceName = '';
         let referrerPhone = null;
         let referralPhone = parentNumber();
         
-        // 1. Check for Employee Referral
         if (od.enquiry_employee_source_id) {
           sourceName = od.enquiry_employee_source_name || 'Employee';
           referrerPhone = od.enquiry_employee_source_number;
-        }
-        // 2. Check for Pre-School Referral (primary location)
-        else if (enq.enquiry_school_source?.id) {
+        } else if (enq.enquiry_school_source?.id) {
           sourceName = enq.enquiry_school_source.value || 'Preschool';
           referrerPhone = enq.enquiry_school_source.spoc_mobile_no;
-        }
-        // 3. Check for Pre-School Referral (fallback in other_details)
-        else if (od.enquiry_school_source_id) {
+        } else if (od.enquiry_school_source_id) {
           sourceName = od.enquiry_school_source_value || 'Preschool';
           referrerPhone = od.enquiry_school_source_number;
-        }
-        // 4. Check for Corporate Referral (primary location)
-        else if (enq.enquiry_corporate_source?.id) {
+        } else if (enq.enquiry_corporate_source?.id) {
           sourceName = enq.enquiry_corporate_source.value || 'Corporate';
           referrerPhone = enq.enquiry_corporate_source.spoc_mobile_no;
-        }
-        // 5. Check for Corporate Referral (fallback in other_details)
-        else if (od.enquiry_corporate_source_id) {
+        } else if (od.enquiry_corporate_source_id) {
           sourceName = od.enquiry_corporate_source_value || 'Corporate';
           referrerPhone = od.enquiry_corporate_source_number;
-        }
-        // 6. Default to parent/other referral types
-        else {
-          sourceName =
-            (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value}`) ||
-            '';
+        } else {
+          sourceName = (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value}`) || '';
           referrerPhone = od.referrer?.phoneNumber || null;
           referralPhone = od.referral?.phoneNumber || null;
         }
@@ -596,16 +714,25 @@ export class EnquiryService {
           referralPhone: referralPhone,
           referrerVerified: od.referrer?.verified || false,
           referralVerified: od.referral?.verified || false,
-          referrerManuallyVerified: od.referrer?.manuallyVerified || false,
-          referralManuallyVerified: od.referral?.manuallyVerified || false,
-          referrerManuallyRejected: od.referrer?.manuallyRejected || false,
-          referralManuallyRejected: od.referral?.manuallyRejected || false,
-          referrerRejectionReason: od.referrer?.manualRejectionReason || null,
-          referralRejectionReason: od.referral?.manualRejectionReason || null,
+          manuallyVerified: od.manuallyVerifiedData?.manuallyVerified || false,
+          manuallyRejected: od.manuallyRejectedData?.manuallyRejected || false,
+          referrerRejectionReason: od.manuallyRejectedData?.manualRejectionReason || null,
+          manuallyVerifiedData: od.manuallyVerifiedData || null,
+          manuallyRejectedData: od.manuallyRejectedData || null,
         };
-      });
+      }).filter(item => item !== null); // Filter out any null results
 
-      return result;
+      return {
+        data: result,
+        pagination: {
+          page: pageNum,
+          pageSize: pageSizeNum,
+          totalCount,
+          totalPages: Math.ceil(totalCount / pageSizeNum),
+          hasNextPage: pageNum < Math.ceil(totalCount / pageSizeNum),
+          hasPrevPage: pageNum > 1
+        }
+      };
 
     } catch (error) {
       console.error('Error fetching all referrals:', error);
@@ -688,7 +815,7 @@ export class EnquiryService {
 
   async verifyReferralManually(
     enquiryId: string,
-    verificationType: 'referrer' | 'referral' | 'both',
+    verificationType: 'both',
     verifiedBy: string,
     reason?: string
   ) {
@@ -700,10 +827,7 @@ export class EnquiryService {
         throw new Error('Enquiry not found');
       }
 
-      
       const od = enquiry.other_details || {};
-      console.log('enquiry_data___', od);
-      console.log('enquiry_data___', od.referrer);
       const updateData: any = { ...od };
 
       const manualVerificationData = {
@@ -711,28 +835,13 @@ export class EnquiryService {
         manuallyVerifiedAt: new Date(),
         manuallyVerifiedBy: verifiedBy,
         manualVerificationReason: reason || 'Manual verification by admin',
-        canUnverify: false, // ✅ NEW: Prevent unverification once manually verified
+        canUnverify: false,
         verifiedPhoneNumber: enquiry.parent_details?.father_details?.mobile ||
           enquiry.parent_details?.mother_details?.mobile ||
           enquiry.parent_details?.guardian_details?.mobile
       };
 
-      // Manually verify referrer
-      if (verificationType === 'referrer' || verificationType === 'both') {
-        updateData.referrer = {
-          ...od.referrer,
-          ...manualVerificationData
-        };
-      }
-
-      // Manually verify referral
-      if (verificationType === 'referral' || verificationType === 'referrer' || verificationType === 'both') {
-
-        updateData.referral = {
-          ...od.referral,
-          ...manualVerificationData
-        };
-      }
+      updateData.manuallyVerifiedData = manualVerificationData;
 
       await this.enquiryRepository.updateById(objectId, {
         other_details: updateData
@@ -764,25 +873,13 @@ export class EnquiryService {
       const od = enquiry.other_details || {};
       const updateData: any = { ...od };
 
-      // Reject referrer
-      if (od.referrer) {
-        updateData.referrer = {
-          ...od.referrer,
-          manuallyRejected: true,
-          manuallyRejectedAt: new Date(),
-          manualRejectionReason: reason
-        };
-      }
+      const manualRejectionData = {
+        manuallyRejected: true,
+        manuallyRejectedAt: new Date(),
+        manualRejectionReason: reason 
+      };
 
-      // Reject referral
-      if (od.referral) {
-        updateData.referral = {
-          ...od.referral,
-          manuallyRejected: true,
-          manuallyRejectedAt: new Date(),
-          manualRejectionReason: reason
-        };
-      }
+      updateData.manuallyRejectedData = manualRejectionData;
 
       await this.enquiryRepository.updateById(objectId, {
         other_details: updateData
@@ -2981,10 +3078,6 @@ export class EnquiryService {
       return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     };
 
-    const normalizePhoneNumber = (phone: string): string => {
-      return phone.replace(/[\+\s\-\(\)]/g, '');
-    };
-
     // ============================================
     // STEP 1: INITIAL MATCH
     // ============================================
@@ -3002,10 +3095,6 @@ export class EnquiryService {
       const searchText = globalSearchText.trim();
       const escapedSearchText = escapeRegex(searchText);
       
-      // Check search type
-      const normalizedPhone = normalizePhoneNumber(searchText);
-      const isNumeric = /^\d+$/.test(normalizedPhone);
-      
       // Enhanced email detection
       const fullEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const isFullEmail = fullEmailPattern.test(searchText);
@@ -3013,17 +3102,26 @@ export class EnquiryService {
       // Check if it could be a partial email search (contains @ or looks like domain)
       const containsAt = searchText.includes('@');
       const isDomainLike = /^[a-zA-Z0-9]+([\-\.]{1}[a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$/.test(searchText);
+
+      // Check if it's a phone number search (digits, spaces, hyphens, parentheses, or starts with +)
+      const phonePattern = /^[\d\s\-\(\)\+]+$/;
+      const looksLikePhone = phonePattern.test(searchText);
       
-      if (isNumeric) {
+      if (looksLikePhone) {
         // ============================================
         // MOBILE NUMBER SEARCH (with normalization)
         // ============================================
-        const escapedNormalizedSearch = escapeRegex(normalizedPhone);
+        const escapedNormalizedSearch = escapeRegex(searchText);
+
+        // Check if search text might include country code
+        const startsWithPlus = searchText.startsWith('+');
+        const searchWithoutPlus = searchText.replace(/^\+/, '');
         
         pipeline.push({
           $match: {
             $or: [
               { enquiry_number: { $regex: escapedSearchText, $options: 'i' } },
+              // Father mobile - exact search with + if present
               {
                 $expr: {
                   $regexMatch: {
@@ -3036,26 +3134,27 @@ export class EnquiryService {
                                 input: {
                                   $replaceAll: {
                                     input: { $ifNull: ['$parent_details.father_details.mobile', ''] },
-                                    find: '+',
+                                    find: ' ',
                                     replacement: '',
                                   },
                                 },
-                                find: ' ',
+                                find: '-',
                                 replacement: '',
                               },
                             },
-                            find: '-',
+                            find: '(',
                             replacement: '',
                           },
                         },
-                        find: '(',
+                        find: ')',
                         replacement: '',
                       },
                     },
-                    regex: escapedNormalizedSearch,
+                    regex: startsWithPlus ? escapedSearchText : escapedNormalizedSearch,
                   },
                 },
               },
+              // Mother mobile - exact search with + if present
               {
                 $expr: {
                   $regexMatch: {
@@ -3068,26 +3167,27 @@ export class EnquiryService {
                                 input: {
                                   $replaceAll: {
                                     input: { $ifNull: ['$parent_details.mother_details.mobile', ''] },
-                                    find: '+',
+                                    find: ' ',
                                     replacement: '',
                                   },
                                 },
-                                find: ' ',
+                                find: '-',
                                 replacement: '',
                               },
                             },
-                            find: '-',
+                            find: '(',
                             replacement: '',
                           },
                         },
-                        find: '(',
+                        find: ')',
                         replacement: '',
                       },
                     },
-                    regex: escapedNormalizedSearch,
+                    regex: startsWithPlus ? escapedSearchText : escapedNormalizedSearch,
                   },
                 },
               },
+              // Guardian mobile - exact search with + if present
               {
                 $expr: {
                   $regexMatch: {
@@ -3100,23 +3200,23 @@ export class EnquiryService {
                                 input: {
                                   $replaceAll: {
                                     input: { $ifNull: ['$parent_details.guardian_details.mobile', ''] },
-                                    find: '+',
+                                    find: ' ',
                                     replacement: '',
                                   },
                                 },
-                                find: ' ',
+                                find: '-',
                                 replacement: '',
                               },
                             },
-                            find: '-',
+                            find: '(',
                             replacement: '',
                           },
                         },
-                        find: '(',
+                        find: ')',
                         replacement: '',
                       },
                     },
-                    regex: escapedNormalizedSearch,
+                    regex: startsWithPlus ? escapedSearchText : escapedNormalizedSearch,
                   },
                 },
               },
@@ -3155,18 +3255,16 @@ export class EnquiryService {
             
             if (domainPart) {
               // Search for: username@domain (both parts provided)
-              // Example: "sanjeev@gmail" matches "sanjeevmajhi@gmail.com"
               emailFields.forEach((field) => {
                 emailSearchConditions.push({
                   [field]: { 
-                    $regex: `${escapedUsername}.*@.*${escapedDomain}`, 
+                    $regex: `^${escapedUsername}.*@.*${escapedDomain}`, 
                     $options: 'i' 
                   }
                 });
               });
             } else {
               // Only username before @
-              // Example: "sanjeev@" matches "sanjeevmajhi@gmail.com"
               emailFields.forEach((field) => {
                 emailSearchConditions.push({
                   [field]: { 
@@ -3179,7 +3277,6 @@ export class EnquiryService {
           }
         } else if (isDomainLike) {
           // Domain-only search (no @)
-          // Example: "gmail.com" or "gmail" matches "sanjeevmajhi@gmail.com"
           emailFields.forEach((field) => {
             emailSearchConditions.push({
               [field]: { 
@@ -3190,7 +3287,6 @@ export class EnquiryService {
           });
         } else {
           // Username-only search (no @ and not domain-like)
-          // Example: "sanjeev" matches "sanjeevmajhi@gmail.com"
           emailFields.forEach((field) => {
             emailSearchConditions.push({
               [field]: { 
@@ -3228,7 +3324,7 @@ export class EnquiryService {
                   $regexMatch: {
                     input: { $concat: [{ $ifNull: ['$student_details.first_name', ''] }, ' ', { $ifNull: ['$student_details.last_name', ''] }] },
                     regex: escapedSearchText, // Matches "John Doe" exactly against the full name
-                    options: 'i',
+                     options: 'i',
                   },
                 },
               },
@@ -3237,7 +3333,7 @@ export class EnquiryService {
                 $expr: {
                   $regexMatch: {
                     input: { $concat: [{ $ifNull: ['$parent_details.father_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.father_details.last_name', ''] }] },
-                    regex: escapedSearchText,
+                     regex: escapedSearchText,
                     options: 'i',
                   },
                 },
@@ -3246,7 +3342,13 @@ export class EnquiryService {
               {
                 $expr: {
                   $regexMatch: {
-                    input: { $concat: [{ $ifNull: ['$parent_details.mother_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.mother_details.last_name', ''] }] },
+                    input: { 
+                      $concat: [
+                        { $ifNull: ['$parent_details.mother_details.first_name', ''] }, 
+                        ' ', 
+                        { $ifNull: ['$parent_details.mother_details.last_name', ''] }
+                      ] 
+                    },
                     regex: escapedSearchText,
                     options: 'i',
                   },
@@ -3256,7 +3358,13 @@ export class EnquiryService {
               {
                 $expr: {
                   $regexMatch: {
-                    input: { $concat: [{ $ifNull: ['$parent_details.guardian_details.first_name', ''] }, ' ', { $ifNull: ['$parent_details.guardian_details.last_name', ''] }] },
+                    input: { 
+                      $concat: [
+                        { $ifNull: ['$parent_details.guardian_details.first_name', ''] }, 
+                        ' ', 
+                        { $ifNull: ['$parent_details.guardian_details.last_name', ''] }
+                      ] 
+                    },
                     regex: escapedSearchText,
                     options: 'i',
                   },
@@ -4987,7 +5095,7 @@ export class EnquiryService {
       req,
       pageNumber,
       pageSize,
-      null,
+      [],
       globalSearchText,
     );
     return result;
@@ -10203,6 +10311,661 @@ export class EnquiryService {
       const [month, day, year] = date.split(',')[0].split('/');
       const timePart = date.split(',')[1].trimStart().split(' ')[0].replace(/:/g, '');
       const filename = `sourceWiseInquiryStatusReport_BA-${day}-${month}-${year}-${timePart}.csv`;
+
+      // generate CSV
+      const generatedAny: any = await this.csvService.generateCsv(formattedEnquiries, fields, filename);
+
+      // Support both shapes: string OR { csv: string }
+      const csvContent: string =
+        typeof generatedAny === 'string' ? generatedAny : (generatedAny && typeof generatedAny.csv === 'string' ? generatedAny.csv : '');
+
+      if (!csvContent) {
+        throw new Error('CSV generation failed or returned empty content.');
+      }
+
+      const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
+        Buffer.from(csvContent),
+        filename,
+        'text/csv',
+      );
+
+      await this.setFileUploadStorage();
+
+      const uploadedFileName = await this.storageService.uploadFile(file, filename);
+      if (!uploadedFileName) {
+        throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      const bucketName = this.configService.get<string>('BUCKET_NAME');
+      const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+
+      return { url: signedUrl, fileName: uploadedFileName };
+    } catch (err) {
+      throw new HttpException(err?.message ?? 'Failed to generate/upload CSV', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async getMetabaseStudentProfileDetails() {
+    try {      
+      const METABASE_URL = process.env.METABASE_URL || 'https://metabase-backend-1032326496689.asia-south1.run.app';
+      const username = process.env.METABASE_USERNAME || 'AmolAhirrao@winjit.com';
+      const password = process.env.METABASE_PASSWORD || '0T707i0?QpmtH3';
+
+      if (!username || !password) {
+        throw new Error('Metabase credentials not configured in environment variables');
+      }
+
+      // 1. Login to get session token
+      const loginResponse = await fetch(`${METABASE_URL}/api/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!loginResponse.ok) {
+        throw new HttpException('Failed to authenticate with Metabase', HttpStatus.UNAUTHORIZED);
+      }
+
+      const loginData: any = await loginResponse.json();
+      const sessionToken = loginData.id;
+
+      // 2. Fetch question results
+      const questionId = 86905;
+      const queryResponse = await fetch(`${METABASE_URL}/api/card/${questionId}/query/json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Metabase-Session': sessionToken,
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!queryResponse.ok) {
+        throw new HttpException('Failed to fetch data from Metabase', HttpStatus.BAD_GATEWAY);
+      }
+
+      const queryData: any = await queryResponse.json();
+
+      // 3. Process data for XLSX
+      const cols = queryData.map((obj) => Object.keys(obj));
+      const headers = cols[0] || [];
+      
+      // If queryData is an array of objects
+       const rows = queryData.map((obj) => Object.values(obj));
+
+       const excelData = [headers, ...rows];
+       
+       // Handle case where Metabase returns specific structure (data.cols, data.rows) or just array of objects
+       // The /query/json usually returns just an array of objects key-value pairs. 
+       // If it was /query it might be different. based on "json" in url, it's likely array of objects.
+
+      const buffer = xlsx.build([{ name: 'Student Profile Details', data: excelData, options: {} }]);
+
+      // 4. Create File
+      const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
+      const filename = `Student_Profile_Details_${timestamp}.xlsx`;
+
+      const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
+        buffer,
+        filename,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+
+      // 5. Upload File
+      await this.setFileUploadStorage();
+      const uploadedFileName = await this.storageService.uploadFile(file, filename);
+      
+      if (!uploadedFileName) {
+        throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      // 6. Get Signed URL
+      const bucketName = this.configService.get<string>('BUCKET_NAME');
+      const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+
+      return { file_url: signedUrl, fileName: uploadedFileName };
+
+    } catch (error) {
+      console.error('Metabase Integration Error:', error.message);
+      throw new HttpException(
+        error.message || 'An error occurred interaction with Metabase',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getMetabaseStudentProfileSummary() {
+    try {
+      const METABASE_URL = process.env.METABASE_URL || 'https://metabase-backend-1032326496689.asia-south1.run.app';
+      const username = process.env.METABASE_USERNAME || 'AmolAhirrao@winjit.com';
+      const password = process.env.METABASE_PASSWORD || '0T707i0?QpmtH3';
+
+      if (!username || !password) {
+        throw new Error('Metabase credentials not configured in environment variables');
+      }
+
+      // 1. Login to get session token
+      const loginResponse = await fetch(`${METABASE_URL}/api/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!loginResponse.ok) {
+        throw new HttpException('Failed to authenticate with Metabase', HttpStatus.UNAUTHORIZED);
+      }
+
+      const loginData: any = await loginResponse.json();
+      const sessionToken = loginData.id;
+
+      // 2. Fetch question results
+      const questionId = 86907;
+      const queryResponse = await fetch(`${METABASE_URL}/api/card/${questionId}/query/json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Metabase-Session': sessionToken,
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!queryResponse.ok) {
+        throw new HttpException('Failed to fetch data from Metabase', HttpStatus.BAD_GATEWAY);
+      }
+
+      const queryData: any = await queryResponse.json();
+
+      // 3. Process data for XLSX
+      const cols = queryData.map((obj) => Object.keys(obj));
+      const headers = cols[0] || [];
+      const rows = queryData.map((obj) => Object.values(obj));
+      const excelData = [headers, ...rows];
+
+      const buffer = xlsx.build([{ name: 'Student Profile Summary', data: excelData, options: {} }]);
+
+      // 4. Create File
+      const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
+      const filename = `Student_Profile_Summary_${timestamp}.xlsx`;
+
+      const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
+        buffer,
+        filename,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+
+      // 5. Upload File
+      await this.setFileUploadStorage();
+      const uploadedFileName = await this.storageService.uploadFile(file, filename);
+
+      if (!uploadedFileName) {
+        throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      // 6. Get Signed URL
+      const bucketName = this.configService.get<string>('BUCKET_NAME');
+      const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+
+      return { file_url: signedUrl, fileName: uploadedFileName };
+
+    } catch (error) {
+      console.error('Metabase Integration Error:', error.message);
+      throw new HttpException(
+        error.message || 'An error occurred interaction with Metabase',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
+    // helper to parse DD-MM-YYYY -> Date
+    const toDate = (s?: string | null): Date | null => {
+      if (!s) return null;
+      const str = String(s).trim();
+      if (!str) return null;
+
+      // dd-mm-yyyy
+      const parts = str.split("-");
+      if (parts.length === 3 && parts[0].length <= 2) {
+        const [d, m, y] = parts;
+        const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00.000Z`;
+        const dt = new Date(iso);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      // fallback
+      const dt = new Date(str);
+      return isNaN(dt.getTime()) ? null : dt;
+    };
+    // Build initial matchConditions if filters provided
+    const matchConditions: any = {};
+
+    if (filters) {
+      const { start_date, end_date, filter_by } = filters;
+
+      const startDt = toDate(start_date || null);
+      const endDt = toDate(end_date || null);
+      if (endDt) endDt.setUTCHours(23, 59, 59, 999);
+
+      // Attach Date filter
+      if (startDt || endDt) {
+        matchConditions.enquiry_date = {};
+        if (startDt) matchConditions.enquiry_date.$gte = startDt;
+        if (endDt) matchConditions.enquiry_date.$lte = endDt;
+      }
+
+      // Apply filter_by logic (CC Only, School Only, All)
+      if (filter_by === 'CC Only') {
+        matchConditions['enquiry_mode.value'] = {
+          $in: ['Phone Call', 'Phone Call (IVR) -Toll free', 'Phone Call -School'],
+        };
+      } else if (filter_by === 'School Only') {
+        matchConditions['enquiry_mode.value'] = {
+          $in: ['Walkin', 'Walkin (VMS)'],
+        };
+      }
+
+      // Helper to convert to numbers if possible, else keep strings
+      // const buildIn = (arr?: string[]) => {
+      //   if (!arr || !arr.length) return null;
+      //   const vals = arr.map((s) => {
+      //     const n = Number(s);
+      //     return Number.isNaN(n) ? s : n;
+      //   });
+      //   return Array.from(new Set(vals));
+      // };
+
+      // Strict matching using fields present in your document sample
+      // if (filters.school && filters.school.length) {
+      //   const v = buildIn(filters.school);
+      //   matchConditions['school_location.value'] = { $in: v };
+      // }
+
+      // if (filters.course && filters.course.length) {
+      //   const v = buildIn(filters.course);
+      //   matchConditions['enquiry_number.id'] = { $in: v };
+      // }
+
+      // if (filters.board && filters.board.length) {
+      //   const v = buildIn(filters.board);
+      //   matchConditions['enquiry_name.id'] = { $in: v };
+      // }
+
+      // if (filters.grade && filters.grade.length) {
+      //   const v = buildIn(filters.grade);
+      //   matchConditions['student_details.grade.id'] = { $in: v };
+      // }
+
+      // if (filters.stream && filters.stream.length) {
+      //   const v = buildIn(filters.stream);
+      //   matchConditions['stream.id'] = { $in: v };
+      // }
+
+      // if (filters.source && filters.source.length) {
+      //   const v = buildIn(filters.source);
+      //   matchConditions['enquiry_source.id'] = { $in: v };
+      // }
+
+      // if (filters.subSource && filters.subSource.length) {
+      //   const v = buildIn(filters.subSource);
+      //   matchConditions['enquiry_sub_source.id'] = { $in: v };
+      // }
+    }
+
+    // Build aggregation pipeline (lookups + flags + grouping + percentage)
+    const pipeline: any[] = [];
+
+    // If matchConditions has keys, push $match stage as the first stage
+    if (Object.keys(matchConditions).length) {
+      pipeline.push({ $match: matchConditions });
+    }
+
+    pipeline.push(
+        {
+          $lookup: {
+            from: 'followUps',
+            localField: '_id',
+            foreignField: 'enquiry_id',
+            as: 'lastFollowUps',
+            pipeline: [
+              {
+                $sort: {
+                  _id: -1,
+                },
+              },
+            ]
+          },
+        },
+        {
+          $addFields: {
+            enquirer_name: {
+              $switch: {
+                branches: [
+                  {
+                    case: { $eq: ['$other_details.parent_type', 'Father'] },
+                    then: {
+                      $concat: [
+                        {
+                          $ifNull: [
+                            '$parent_details.father_details.first_name',
+                            '',
+                          ],
+                        },
+                        ' ',
+                        {
+                          $ifNull: ['$parent_details.father_details.last_name', ''],
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    case: { $eq: ['$other_details.parent_type', 'Mother'] },
+                    then: {
+                      $concat: [
+                        {
+                          $ifNull: [
+                            '$parent_details.mother_details.first_name',
+                            '',
+                          ],
+                        },
+                        ' ',
+                        {
+                          $ifNull: ['$parent_details.mother_details.last_name', ''],
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    case: { $eq: ['$other_details.parent_type', 'Guardian'] },
+                    then: {
+                      $concat: [
+                        {
+                          $ifNull: [
+                            '$parent_details.guardian_details.first_name',
+                            '',
+                          ],
+                        },
+                        ' ',
+                        {
+                          $ifNull: [
+                            '$parent_details.guardian_details.last_name',
+                            '',
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+                default: null,
+              },
+            },
+            contact_number: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $eq: ['$other_details.parent_type', EParentType.FATHER],
+                    },
+                    then: '$parent_details.father_details.mobile',
+                  },
+                  {
+                    case: {
+                      $eq: ['$other_details.parent_type', EParentType.MOTHER],
+                    },
+                    then: '$parent_details.mother_details.mobile',
+                  },
+                  {
+                    case: {
+                      $eq: ['$other_details.parent_type', EParentType.GUARDIAN],
+                    },
+                    then: '$parent_details.guardian_details.mobile',
+                  },
+                ],
+                default: null,
+              },
+            },
+            nextFollowUpDate: {
+              $cond: {
+                if: {
+                  $and: [
+                    { $eq: ['$enquiry_mode.value', 'Digital (website)'] },
+                    { $eq: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
+                  ],
+                },
+                then: { $toDate: '$created_at' },
+                else: {
+                  $cond: {
+                    if: {
+                      $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0],
+                    },
+                    then: {
+                      $dateFromString: {
+                        dateString: {
+                          $arrayElemAt: [
+                            { $ifNull: ['$lastFollowUps.date', []] },
+                            0,
+                          ],
+                        },
+                        format: '%d-%m-%Y',
+                        onError: null,
+                      },
+                    },
+                    else: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            overdue_days_of_follow_up: {
+              $cond: {
+                if: { $ne: ['$nextFollowUpDate', null] },
+                then: {
+                  $dateDiff: {
+                    startDate: '$nextFollowUpDate',
+                    endDate: '$$NOW',
+                    unit: 'day',
+                  },
+                },
+                else: null,
+              },
+            },
+          },
+        },
+      
+      // Group by visible dimensions
+     
+
+      // Percentage calculation
+        {
+        $project: {
+          _id: 1,
+          school_name: '$school_location.value',
+          enquiry_number: '$enquiry_number',
+          enquiry_date: {
+            $dateToString: {
+              format: '%d-%m-%Y',
+              date: '$enquiry_date'
+            }
+          },
+          enquirer_name : 1,
+          student_name: {
+            $concat: [
+              { $ifNull: ['$student_details.first_name', ''] },
+              ' ',
+              { $ifNull: ['$student_details.last_name', ''] },
+            ],
+          },        
+          academic_year: '$academic_year.value',
+          grade: '$student_details.grade.value',
+          contact_number: 1,
+          enquiry_stage: {
+            $let: {
+              vars: {
+                lastStage: { $arrayElemAt: ['$enquiry_stages', -1] }
+              },
+              in: {
+                $concat: [
+                   { $ifNull: ['$$lastStage.stage_name', ''] },
+                   ' - ',
+                   { $ifNull: ['$$lastStage.status', ''] }
+                ]
+              }
+            }
+          },
+          current_lead_owner: '$assigned_to',
+          follow_up_date: {
+            $cond: {
+              if: { $ne: ['$nextFollowUpDate', null] },
+              then: {
+                $dateToString: {
+                  format: '%d/%m/%Y',
+                  date: '$nextFollowUpDate',
+                },
+              },
+              else: null,
+            },
+          },
+          ageing_in_days: { $ifNull: ['$overdue_days_of_follow_up', 0] },
+          school_location: 1,
+          school_id: '$school_location.id',
+        },
+      },
+      {
+        $sort: { created_at: -1 },
+      },
+    );
+    // console.log("pipeline=>\n", JSON.stringify(pipeline, null, 2));
+
+    const aggRows = await this.enquiryRepository.aggregate(pipeline).allowDiskUse(true);
+    // console.log("aggRows Count=>>", aggRows?.length)
+
+    // Collect school IDs for MDM lookup
+    const schoolIds = [...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean))];
+
+    // No MDM? return merged rows with cluster=NA (but still apply any non-cluster filters)
+    if (!schoolIds.length) {
+      let rowsWithCluster = aggRows.map((r) => ({ cluster: 'NA', ...r }));
+      // If cluster filter was requested, nothing will match (because cluster NA) — return filtered result
+      if (filters && filters.cluster && filters.cluster.length) {
+        rowsWithCluster = rowsWithCluster.filter((rr) => filters.cluster.includes(rr.cluster));
+      }
+      return this.enquiryHelper.mergeVisibleRows(rowsWithCluster);
+    }
+
+    // Fetch MDM school metadata
+    const schoolDetailsResp = await this.mdmService.postDataToAPI(MDM_API_URLS.SEARCH_SCHOOL, {
+      operator: `school_id In (${schoolIds.toString()})`,
+    });
+
+    const mdmSchools: any[] = schoolDetailsResp?.data?.schools ?? [];
+    const normalizeGrade = (g: string) => g?.replace(/^Grade\s*/i, '').trim().toLowerCase() || '';
+
+    // Attach cluster
+    const finalRows = aggRows.map((r) => {
+      let cluster = 'NA';
+
+      const matched = mdmSchools.find((s) => {
+        if (String(s.school_id) !== String(r.school_id)) return false;
+        if (s.grade_name) {
+          return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
+        }
+        return true;
+      });
+
+      if (matched) {
+        cluster = matched.cluster_name ?? 'NA';
+      }
+
+      return { cluster, ...r };
+    });
+
+    // If cluster[] filter exists, filter here (cluster is from MDM)
+    let filteredByClusterRows = finalRows;
+    if (filters && filters.cluster && filters.cluster.length) {
+
+      const requested = filters.cluster.map((c: any) => String(c).trim());
+      const requestedIds = new Set(requested.filter(r => /^\d+$/.test(r)).map(r => r)); // "2", "10"
+      const requestedNames = new Set(requested.filter(r => !/^\d+$/.test(r)).map(r => r.toLowerCase())); // "cluster 1"
+
+      // Collect school_ids from mdmSchools that belong to requested clusters
+      const allowedSchoolIds = new Set<string>();
+
+      mdmSchools.forEach((s: any) => {
+        const schoolId = s.school_id ?? s.schoolId;
+        if (!schoolId) return;
+
+        // try common cluster shapes
+        const clusterId = s.cluster_id ?? s.cluster?.id;
+        const clusterName = (s.cluster_name ?? s.cluster?.name ?? s.cluster?.cluster_name) || null;
+
+        if (clusterId !== undefined && clusterId !== null && requestedIds.has(String(clusterId))) {
+          allowedSchoolIds.add(String(schoolId));
+          return;
+        }
+
+        if (clusterName && requestedNames.has(String(clusterName).toLowerCase())) {
+          allowedSchoolIds.add(String(schoolId));
+          return;
+        }
+      });
+
+      if (allowedSchoolIds.size === 0) {
+        console.log('Cluster filter did not match any MDM schools. requested=', requested);
+        filteredByClusterRows = [];
+      } else {
+        filteredByClusterRows = finalRows.filter((r) => allowedSchoolIds.has(String(r.school_id)));
+      }
+    }
+
+    return filteredByClusterRows;
+  }
+
+
+async generateAndUploadOutsideTatFollowupReportCsv(
+    finalRows: any[],
+  ): Promise<{ url: string; fileName: string }> {
+    try {
+      // const mergedRows = this.enquiryHelper.mergeVisibleRows(finalRows);
+      
+      const formattedEnquiries = finalRows.map((r) => ({
+        Cluster: r.cluster ?? 'NA',
+        School: r.school_name ?? 'NA',
+        'Enquiry Number': r.enquiry_number ?? 'NA',
+        'Enquiry Date': r.enquiry_date ?? 'NA',
+        'Enquiry Stage': r.enquiry_stage ?? 'NA',
+        'Current Lead Owner': r.current_lead_owner ?? 'NA',
+        'Follow Up Date': r.follow_up_date ?? 'NA',
+        'Ageing In Days': r.ageing_in_days ?? 'NA',
+        'Enquirer Name': r.enquirer_name ?? 'NA',
+        'Student Name': r.student_name ?? 'NA',
+        'Academic Year': r.academic_year ?? 'NA',
+        'Contact No.': r.contact_number ?? 'NA',
+      }));
+
+      const fields: string[] = [
+        'Cluster',
+        'School',
+        'Enquiry Number',
+        'Enquirer Name',
+        'Student Name',
+        'Academic Year',
+        'Contact No.',
+        'Enquiry Date',
+        'Enquiry Stage',
+        'Current Lead Owner',
+        'Follow Up Date',
+        'Ageing In Days',
+      ];
+
+      const date = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+      const [month, day, year] = date.split(',')[0].split('/');
+      const timePart = date.split(',')[1].trimStart().split(' ')[0].replace(/:/g, '');
+      const filename = `OutsideTATFollowupReport-${day}-${month}-${year}-${timePart}.csv`;
 
       // generate CSV
       const generatedAny: any = await this.csvService.generateCsv(formattedEnquiries, fields, filename);
