@@ -107,6 +107,10 @@ export const excludedRoutes = [
     path: 'referral-view/:id',
     method: RequestMethod.GET,
   },
+  {
+    path: '/referral-view?error=:error',
+    method: RequestMethod.GET,
+  },
   //! Temporary excluded routes for vgos integration
   {
     path: 'enquiry/pre.vgos.org/:id',
@@ -119,25 +123,5 @@ export const excludedRoutes = [
   {
     path: '/enquiry/:id/move-to-next-stage',
     method: RequestMethod.PATCH,
-  },
-  {
-    path: '/enquiry/list/global-search',
-    method: RequestMethod.POST,
-  },
-  {
-    path: '/enquiry/rejectReferralManually',
-    method: RequestMethod.POST,
-  },
-  {
-    path: 'enquiry/getAllReferrals',
-    method: RequestMethod.GET,
-  },
-  {
-    path: 'enquiry/verifyReferralManually',
-    method: RequestMethod.POST,
-  },
-  {
-    path: '/enquiry/cc/list',
-    method: RequestMethod.POST,
   },
 ];

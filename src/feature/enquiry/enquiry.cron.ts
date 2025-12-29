@@ -4,7 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import axios, { AxiosRequestHeaders } from 'axios';
 import { Request } from 'express';
 import * as moment from 'moment';
-import { PipelineStage } from 'mongoose';
+import { PipelineStage, Types } from 'mongoose';
 
 import { AxiosService, EHttpCallMethods } from '../../global/service';
 import {
@@ -20,6 +20,7 @@ import { EEnquiryStageStatus, EEnquiryStatus } from './enquiry.type';
 import { EnquiryHelper } from './enquiryHelper.service';
 import { EnquiryService } from './enquiry.service';
 import { RedisService } from 'ampersand-common-module';
+import { GLOBAL_ENQUIRY_GENERATOR_ID } from './enquiry.constant';
 
 @Injectable()
 export class EnquiryCron {
@@ -41,7 +42,7 @@ export class EnquiryCron {
    * This cron job will run every 15 minutes and will process the enquiries where
    * admission process is incomplete i.e the last stage is in progress
    */
-  @Cron('*/3 * * * *', {
+  @Cron('*/5 * * * *', {
     name: 'processIncompleteAdmissionsCron',
     timeZone: 'Asia/Kolkata',
   })
@@ -81,9 +82,6 @@ export class EnquiryCron {
                 },
               },
             ],
-            status: {
-              $in: [EEnquiryStatus.ADMITTED, EEnquiryStatus.OPEN],
-            },
           },
         },
         {
@@ -281,15 +279,72 @@ export class EnquiryCron {
     }
   }
 
-  @Cron('*/7 * * * *') // runs every 10 minutes
-  async refreshAdmissionReportCache() {
+  @Cron('*/5 * * * *') // Every 3 min
+  async handelDuplictaeEnquiryNumber(): Promise<void> {
+    console.log('[CRON] Starting duplicate enquiry check');
+
     try {
-      console.log('Refreshing admission report cache...');
-      const result = await this.enquiryService.enquiryDetailsReport();
-      await this.redisInstance?.setData('admission-enquiry-report', result, 720);
-      console.log('admission report cache updated successfully');
-    } catch (err) {
-      console.log('Error refreshing admission report cache:', err);
+      const pipeline = [
+        {
+          $group: {
+            _id: "$enquiry_number",
+            count: { $sum: 1 },
+            docs: {
+              $push: {
+                id: "$_id",
+                created_at: "$created_at"
+              }
+            }
+          }
+        },
+        { $match: { count: { $gt: 1 } } }
+      ];
+
+      const duplicates = await this.enquiryRepository.aggregate(pipeline);
+      console.log(`[CRON] Duplicate groups found: ${duplicates.length}`);
+
+      for (const group of duplicates) {
+        // sort by created_at (oldest first)
+        const sortedDocs = group.docs.sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        // keep first, update rest
+        const docsToUpdate = sortedDocs.slice(1);
+        console.log(`[CRON] docsToUpdate ${JSON.stringify(docsToUpdate)}`);
+
+        for (const doc of docsToUpdate) {
+          console.log(`[CRON] doc ${JSON.stringify(doc)}`);
+
+          const newEnquiryNumber = await Promise.race([
+            this.enquiryHelperService.getGlobalId(GLOBAL_ENQUIRY_GENERATOR_ID),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('getGlobalId timeout')), 5000) // 5 sec
+            ),
+          ]);
+
+          console.log(`[CRON] newEnquiryNumber ${JSON.stringify(newEnquiryNumber)}`);
+
+          await this.enquiryRepository.updateById(
+            new Types.ObjectId(doc.id),
+            { enquiry_number: newEnquiryNumber }
+          );
+          console.log(`[CRON] Updated duplicate enquiry ${newEnquiryNumber}`);
+        }
+      }
+    } catch (error) {
+      console.error('[CRON] Error in Duplicate Enquiry Cron:', error);
     }
   }
+
+  // @Cron('*/7 * * * *') // runs every 10 minutes
+  // async refreshAdmissionReportCache() {
+  //   try {
+  //     console.log('Refreshing admission report cache...');
+  //     const result = await this.enquiryService.enquiryDetailsReport();
+  //     await this.redisInstance?.setData('admission-enquiry-report', result, 720);
+  //     console.log('admission report cache updated successfully');
+  //   } catch (err) {
+  //     console.log('Error refreshing admission report cache:', err);
+  //   }
+  // }
 }

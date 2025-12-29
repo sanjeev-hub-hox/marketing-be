@@ -52,6 +52,7 @@ export const ADMIN_API_URLS = {
   MASTER_DATA: 'master/details',
   MAP_STUDENT_DOCUMENTS: 'studentProfile/student-marketing-documents',
   STUDENT_PROFILE: 'studentProfile',
+  MAP_FEES: 'studentProfile/enquiry/map-fees',
 };
 
 export const FRONTEND_STANDALONE_PAGES_URL = {

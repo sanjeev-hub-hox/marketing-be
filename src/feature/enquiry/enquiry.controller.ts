@@ -2180,7 +2180,7 @@ export class EnquiryController {
     }
   }
 
- @Get('/ay/outside-tat-followup-report')
+ @Post('/ay/outside-tat-followup-report')
   async getReportForOutsideTatFollowup(
     @Res() res: Response,
     @Req() req: Request,
@@ -2198,7 +2198,11 @@ export class EnquiryController {
       if (v === undefined || v === null) return undefined;
       if (Array.isArray(v)) return v;
       // accept comma separated string too
-      return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+      return String(v)
+        .replace(/^\[+|\]+$/g, '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     };
 
     const filters: any = {};
@@ -2211,10 +2215,25 @@ export class EnquiryController {
     }
 
     // Parse common multi-value filters (accept single, array, comma-separated)
-    const maybeArrayKeys = ['cluster', 'school', 'enquiryNo', 'enquiryName', 'studentName', 'academicYear', 'contactNo', 'enquiryStage','currentOwner','followUpDate','ageingDays'];
+    const maybeArrayKeys = [
+      'cluster',
+      'school',
+      'school_id',
+      'enquiryNo',
+      'enquiryName',
+      'studentName',
+      'academicYear',
+      'contactNo',
+      'enquiryStage',
+      'currentOwner',
+      'followUpDate',
+      'ageingDays',
+    ];
     maybeArrayKeys.forEach((k) => {
       // allow both foo[] and foo
-      const val = toArray((req.query as any)[k] ?? (req.query as any)[`${k}[]`]);
+      const val = toArray(
+        (req.query as any)[k] ?? (req.query as any)[`${k}[]`],
+      );
       if (val && val.length) filters[k] = val;
     });
 
@@ -2226,6 +2245,7 @@ export class EnquiryController {
       `group_by=${filters.group_by ? filters.group_by.join('-') : 'default'}`,
       `cluster=${filters.cluster ? filters.cluster.join('-') : 'NA'}`,
       `school=${filters.school ? filters.school.join('-') : 'NA'}`,
+      `school_id=${filters.school_id ? filters.school_id.join('-') : 'NA'}`,
       `course=${filters.enquiryNo ? filters.enquiryNo.join('-') : 'NA'}`,
       `board=${filters.enquiryName ? filters.enquiryName.join('-') : 'NA'}`,
       `grade=${filters.studentName ? filters.studentName.join('-') : 'NA'}`,

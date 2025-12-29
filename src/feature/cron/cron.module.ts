@@ -22,7 +22,7 @@ import { ReferralReminderModule } from '../referralReminder/referralReminder.mod
       { name: 'enquiryLogs', schema: EnquiryLogSchema },
     ]),
     GlobalModule, 
-    ReferralReminderModule
+    ReferralReminderModule,
   ],
   providers: [
     CronService,

@@ -161,7 +161,6 @@ export class EnquiryService {
     payload: CheckFeePayload,
     req: any,
   ) {
-    const schoolFeeDetails = await this.fetchSchoolFeeDetails(payload);
     const enquiryId = enquiryDetails?._id;
 
     const RegistrationFeesStatus = enquiryDetails.enquiry_stages.find(
@@ -172,40 +171,137 @@ export class EnquiryService {
     )?.status;
 
     await this.performBulkDeEnrollment(enquiryDetails, enquiryId, payload, req);
-    const enquiryRecord = await this.enquiryRepository.getOne({
-      _id: new Types.ObjectId(enquiryId),
-    });
+
+
     if (RegistrationFeesStatus == 'In Progress' || RegistrationFeesStatus == 'Completed') {
-
-      await this.enquiryRepository.updateById(
-        new Types.ObjectId(enquiryId),
-        {
-          $set: {
-            registration_fee_request_triggered: false,
-          },
-        },
-      );
-
-      const chek = await this.enquiryHelper.sendCreateRegistrationFeeRequest(enquiryRecord, req);
-
+      try {
+        const attachregistartionFees = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(ADMIN_API_URLS.MAP_FEES)
+          .setMethod(EHttpCallMethods.POST)
+          .setHeaders({
+            Authorization: req.headers.authorization,
+          } as AxiosRequestHeaders)
+          .setBody({
+            enquiry_no: enquiryDetails.enquiry_number,
+            enquiry_id: enquiryId.toString(),
+            school_id: payload.school.id,
+            grade_id: payload.grade.id,
+            board_id: payload.board.id,
+            shift_id: payload.shift.id,
+            course_id: payload.course.id,
+            stream_id: payload.stream.id,
+            academicYear_id: parseInt(
+              payload.academicYearId.value.split(' - ')[1],
+              10,
+            ),
+            ...(payload?.guest_school?.id
+              ? { guest_school: payload.guest_school.id }
+              : {}),
+            fee_type_id: 12,
+          })
+          .sendRequest();
+      } catch (error) {
+        console.error('Failed to map registration fees:', error);
+      }
     }
     if (admissionFeesStatus == 'In Progress' || admissionFeesStatus == 'Completed') {
-
-      await this.admissionRepository.updateByEnquiryId(
-        new Types.ObjectId(enquiryId),
-        {
-          $set: {
-            admission_fee_request_triggered: false,
-          },
-        },
-      );
-
-      const rhek = await this.admissionService.sendCreateAdmissionPaymentRequest(enquiryRecord, req);
+      try {
+        const attachPregistartionFees = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(ADMIN_API_URLS.MAP_FEES)
+          .setMethod(EHttpCallMethods.POST)
+          .setHeaders({
+            Authorization: req.headers.authorization,
+          } as AxiosRequestHeaders)
+          .setBody({
+            enquiry_no: enquiryDetails.enquiry_number,
+            enquiry_id: enquiryId.toString(),
+            school_id: payload.school.id,
+            grade_id: payload.grade.id,
+            board_id: payload.board.id,
+            shift_id: payload.shift.id,
+            course_id: payload.course.id,
+            stream_id: payload.stream.id,
+            academicYear_id: parseInt(
+              payload.academicYearId.value.split(' - ')[1],
+              10,
+            ),
+            ...(payload?.guest_school?.id
+              ? { guest_school: payload.guest_school.id }
+              : {}),
+            fee_type_id: 9,
+          })
+          .sendRequest();
+      } catch (error) {
+        console.error('Failed to map tuesion fees:', error);
+      }
+      try {
+        const attachAdmissionFees = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(ADMIN_API_URLS.MAP_FEES)
+          .setMethod(EHttpCallMethods.POST)
+          .setHeaders({
+            Authorization: req.headers.authorization,
+          } as AxiosRequestHeaders)
+          .setBody({
+            enquiry_no: enquiryDetails.enquiry_number,
+            enquiry_id: enquiryId.toString(),
+            school_id: payload.school.id,
+            grade_id: payload.grade.id,
+            board_id: payload.board.id,
+            shift_id: payload.shift.id,
+            course_id: payload.course.id,
+            stream_id: payload.stream.id,
+            academicYear_id: parseInt(
+              payload.academicYearId.value.split(' - ')[1],
+              10,
+            ),
+            ...(payload?.guest_school?.id
+              ? { guest_school: payload.guest_school.id }
+              : {}),
+            fee_type_id: 1,
+            fee_sub_type_id: 3,
+          })
+          .sendRequest();
+      } catch (error) {
+        console.error('Failed to map admission fees:', error);
+      }
+      try {
+        const attachsecurityFees = await this.axiosService
+          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+          .setUrl(ADMIN_API_URLS.MAP_FEES)
+          .setMethod(EHttpCallMethods.POST)
+          .setHeaders({
+            Authorization: req.headers.authorization,
+          } as AxiosRequestHeaders)
+          .setBody({
+            enquiry_no: enquiryDetails.enquiry_number,
+            enquiry_id: enquiryId.toString(),
+            school_id: payload.school.id,
+            grade_id: payload.grade.id,
+            board_id: payload.board.id,
+            shift_id: payload.shift.id,
+            course_id: payload.course.id,
+            stream_id: payload.stream.id,
+            academicYear_id: parseInt(
+              payload.academicYearId.value.split(' - ')[1],
+              10,
+            ),
+            ...(payload?.guest_school?.id
+              ? { guest_school: payload.guest_school.id }
+              : {}),
+            fee_type_id: 17,
+          })
+          .sendRequest();
+      } catch (error) {
+        console.error('Failed to map security fees:', error);
+      }
     }
   }
   async checkIfFeeAttached(payload: CheckFeePayload, req: any) {
     try {
-      const enquiryDetails = await this.getEnquiryDetail(
+      const enquiryDetails = await this.enquiryRepository.getByEnquiryNumber(
         payload.enquiry_number,
       );
 
@@ -263,37 +359,7 @@ export class EnquiryService {
     return result;
   }
 
-  private async fetchSchoolFeeDetails(payload: CheckFeePayload) {
-    const schoolDetails = await this.mdmService.fetchDataFromAPI(
-      `${MDM_API_URLS.SCHOOL}/${payload.school.id}`,
-    );
 
-    if (!schoolDetails) {
-      throw new HttpException(
-        'No School found',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-
-    const schoolParentId = schoolDetails.data.attributes.school_parent_id;
-    const requestParam = `school_parent_id = ${schoolParentId} AND academic_year_id = ${payload.academicYearId.value.slice(-2)} AND grade_id = ${payload.grade.id} AND board_id = ${payload.board.id} AND course_id = ${payload.course.id} AND shift_id = ${payload.shift.id} AND stream_id = ${payload.stream.id} AND guest_school_id IS NULL AND guest_lob_id IS NULL AND fee_type_id IN (1,17,9) AND published_at is not null AND publish_start_date <= current_date AND publish_end_date >= current_date`;
-
-    const schoolFeeDetails = await this.mdmService.postDataToAPI(
-      MDM_API_URLS.SCHOOL_FEE,
-      {
-        operator: requestParam,
-      },
-    );
-
-    if (!schoolFeeDetails || schoolFeeDetails?.data?.schoolFees?.length === 0) {
-      throw new HttpException(
-        'Fee not found for given enquiry Data',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-
-    return schoolFeeDetails;
-  }
 
   private async getStudentFeeDetails(enquiryData, enquireId, req, payload) {
     const enquire_id = enquireId.toHexString();
@@ -304,23 +370,39 @@ export class EnquiryService {
     console.log('feeData', {
       type: 'pending',
       students: [enquire_id],
-      academic_years: [yeartId],
+      // academic_years: [yeartId],
     },);
 
-    const feeData = await axios.post(
-      `${newUrl}/fee_collection/fee_details`,
-      {
-        type: 'pending',
-        students: [enquire_id],
-        academic_years: [yeartId],
-      },
-      {
-        headers: {
-          Authorization: req.headers.authorization,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
+        console.log('feeData', {
+      type: 'pending',
+      students: [enquire_id],
+      academic_years: [yeartId],
+    },);    console.log(`${newUrl}/fee_collection/fee_details`);
+
+    console.log(req.headers.authorization);
+
+const response = await fetch(
+  `${newUrl}/fee_collection/fee_details`,
+  {
+    method: 'POST',
+    headers: {
+      Authorization: req.headers.authorization,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      type: 'pending',
+      students: [enquire_id],
+      academic_years: [yeartId],
+    }),
+  },
+);
+
+if (!response.ok) {
+  throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+}
+console.log(JSON.stringify(response));
+
+const feeData = await response.json();
     console.log('feeData', feeData);
 
     if (feeData.status !== 200) {
@@ -330,18 +412,17 @@ export class EnquiryService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    console.log('feeData', feeData?.data);
-    console.log('feeData', feeData?.data?.data);
-    console.log('feeData', feeData?.data?.data?.fees);
-    console.log('feeData', feeData?.data?.data?.fees?.[enquire_id]);
+    console.log('feeData1', feeData?.data?.fees);
+    console.log('feeData2', feeData?.data?.fees?.[enquire_id]);
+  
 
-    if (!feeData?.data?.data?.fees?.[enquire_id]) {
+    if (!feeData?.data?.fees?.[enquire_id]) {
       return idArray;
     }
 
-    console.log('feeData', yeartValue, enquire_id);
+    console.log('feeData5', yeartValue, enquire_id);
 
-    const data = feeData?.data?.data.fees[enquire_id][yeartValue];
+    const data = feeData?.data?.fees?.[enquire_id][yeartValue];
     idArray = data.map((item) => item.id.toString());
     console.log('idArray', idArray);
 
@@ -366,7 +447,7 @@ export class EnquiryService {
     );
 
     const reasonId = Number(reasonData?.data[0]?.id);
-    console.log('feeIds', feeIds);
+    console.log('feeIds2', feeIds);
 
     await Promise.allSettled(
       feeIds.map(async (feeId) => {
@@ -1098,72 +1179,130 @@ export class EnquiryService {
 
   async getEnrollmentAndParentNumber(search?: string) {
     try {
+      // Build search filter
+      const searchFilter = search ? {
+        $or: [
+          { 'admissionDetails.enrolment_number': { $regex: search, $options: 'i' } },
+          { 'parent_details.father_details.mobile': { $regex: search, $options: 'i' } },
+          { 'parent_details.mother_details.mobile': { $regex: search, $options: 'i' } },
+          { 'parent_details.guardian_details.mobile': { $regex: search, $options: 'i' } }
+        ]
+      } : {};
 
-      const filter: any = {
-        "student_details.enrolment_number": { $nin: ["null", null, ""] }
-      };
-      
-      if (search) {
-        const sanitizedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
-        const searchRegex = new RegExp(sanitizedSearch, "i"); 
-
-        filter.$or = [
-          { "student_details.enrolment_number": searchRegex },
-          { "parent_details.father_details.mobile": searchRegex },
-          { "parent_details.mother_details.mobile": searchRegex },
-          { "parent_details.guardian_details.mobile": searchRegex }
-        ];
-      }
-
-      //! Sanjeev Majhi
-      const enquiryDocs = await this.enquiryRepository.getManyL(
-        filter,
+      // Build aggregation pipeline
+      const pipeline: any[] = [
         {
-          _id: 1,
-          student_name: 1,
-          "student_details.enrolment_number": 1,  // ✅ Correct field
-          "parent_details.father_details.mobile": 1,
-          "parent_details.mother_details.mobile": 1,
-          "parent_details.guardian_details.mobile": 1,
-          "parent_details.father_details.first_name": 1,
-          "parent_details.mother_details.first_name": 1,
-          "parent_details.guardian_details.first_name": 1,
-          "parent_details.father_details.last_name": 1,
-          "parent_details.mother_details.last_name": 1,
-          "parent_details.guardian_details.last_name": 1,
-          "academic_year.value": 1
+          $lookup: {
+            from: 'admission',
+            localField: '_id',
+            foreignField: 'enquiry_id',
+            as: 'admissionDetails',
+          },
         },
-        { limit: 200, sort: { "student_details.enrolment_number": 1 } } // ✅ Correct sorting
-      )
+        {
+          $addFields: {
+            enrolment_number: {
+              $cond: {
+                if: {
+                  $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0],
+                },
+                then: {
+                  $let: {
+                    vars: {
+                      admissionRecordWithEnrolmentNumber: {
+                        $filter: {
+                          input: { $ifNull: ['$admissionDetails', []] },
+                          as: 'record',
+                          cond: {
+                            $and: [
+                              { $ne: ['$$record.enrolment_number', null] },
+                              { $ne: ['$$record.student_id', null] },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                    in: {
+                      $cond: {
+                        if: { $gt: [{ $size: '$$admissionRecordWithEnrolmentNumber' }, 0] },
+                        then: {
+                          $arrayElemAt: [
+                            {
+                              $ifNull: [
+                                '$$admissionRecordWithEnrolmentNumber.enrolment_number',
+                                [],
+                              ],
+                            },
+                            0,
+                          ],
+                        },
+                        else: null,
+                      },
+                    },
+                  },
+                },
+                else: null,
+              },
+            },
+          },
+        },
+        {
+          $match: {
+            enrolment_number: { $nin: [null, ""] }
+          }
+        },
+        ...(search ? [{ $match: searchFilter }] : []),
+        {
+          $project: {
+            _id: 1,
+            student_name: 1,
+            enrolment_number: 1,
+            'parent_details.father_details.mobile': 1,
+            'parent_details.mother_details.mobile': 1,
+            'parent_details.guardian_details.mobile': 1,
+            'parent_details.father_details.first_name': 1,
+            'parent_details.mother_details.first_name': 1,
+            'parent_details.guardian_details.first_name': 1,
+            'parent_details.father_details.last_name': 1,
+            'parent_details.mother_details.last_name': 1,
+            'parent_details.guardian_details.last_name': 1,
+            'academic_year.value': 1
+          }
+        },
+        { $sort: { enrolment_number: 1 } },
+        { $limit: 200 }
+      ];
+
+      const enquiryDocs = await this.enquiryRepository.aggregate(pipeline);
 
       const result = enquiryDocs.map((enq) => {
-        const father = enq.parent_details?.father_details
-        const mother = enq.parent_details?.mother_details
-        const guardian = enq.parent_details?.guardian_details
+        const father = enq.parent_details?.father_details;
+        const mother = enq.parent_details?.mother_details;
+        const guardian = enq.parent_details?.guardian_details;
 
-        let parentPhone = null
-        let parentName = null
+        let parentPhone = null;
+        let parentName = null;
 
         if (father?.mobile) {
-          parentPhone = father.mobile
-          parentName = [father.first_name, father.last_name].filter(Boolean).join(" ")
+          parentPhone = father.mobile;
+          parentName = [father.first_name, father.last_name].filter(Boolean).join(" ");
         } else if (mother?.mobile) {
-          parentPhone = mother.mobile
-          parentName = [mother.first_name, mother.last_name].filter(Boolean).join(" ")
+          parentPhone = mother.mobile;
+          parentName = [mother.first_name, mother.last_name].filter(Boolean).join(" ");
         } else if (guardian?.mobile) {
-          parentPhone = guardian.mobile
-          parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(" ")
+          parentPhone = guardian.mobile;
+          parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(" ");
         }
 
         return {
           id: enq._id,
           student_name: enq.student_name,
-          enrollment_number: enq.student_details?.enrolment_number || null, // ✅ Correct return
+          enrollment_number: enq.enrolment_number || null,
           parent_phone: parentPhone,
           parent_name: parentName,
-          academic_year: enq.academic_year.value
-        }
-      })
+          academic_year: enq.academic_year?.value
+        };
+      });
 
       //! Get the unique Enrollment ID
       const unique = [];
@@ -10170,9 +10309,9 @@ export class EnquiryService {
 
       const matched = mdmSchools.find((s) => {
         if (String(s.school_id) !== String(r.school_id)) return false;
-        if (s.grade_name) {
-          return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
-        }
+        // if (s.grade_name) {
+        //   return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
+        // }
         return true;
       });
 
@@ -10405,7 +10544,7 @@ export class EnquiryService {
 
       // 4. Create File
       const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
-      const filename = `Student_Profile_Details_${timestamp}.xlsx`;
+      const filename = `Student_Profile_Details_${timestamp}.csv`;
 
       const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
         buffer,
@@ -10489,7 +10628,7 @@ export class EnquiryService {
 
       // 4. Create File
       const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
-      const filename = `Student_Profile_Summary_${timestamp}.xlsx`;
+      const filename = `Student_Profile_Summary_${timestamp}.csv`;
 
       const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
         buffer,
@@ -10561,10 +10700,18 @@ async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
         matchConditions['enquiry_mode.value'] = {
           $in: ['Phone Call', 'Phone Call (IVR) -Toll free', 'Phone Call -School'],
         };
-      } else if (filter_by === 'School Only') {
+        } else if (filter_by === 'School Only') {
         matchConditions['enquiry_mode.value'] = {
           $in: ['Walkin', 'Walkin (VMS)'],
         };
+      }
+
+      if (filters.school_id && filters.school_id.length) {
+        const ids = filters.school_id.map((s: string) => {
+          const n = Number(s);
+          return Number.isNaN(n) ? s : n;
+        });
+        matchConditions['school_location.id'] = { $in: ids };
       }
 
       // Helper to convert to numbers if possible, else keep strings

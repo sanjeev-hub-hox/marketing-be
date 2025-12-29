@@ -80,6 +80,11 @@ export class CheckFeePayload {
   @Type(() => DropdownValue)
   stream: DropdownValue;
 
+  @ApiProperty({ type: DropdownValue })
+  @ValidateNested()
+  @Type(() => DropdownValue)
+  guest_school: DropdownValue;
+
 }
 
 export class UpdateAcStudentGuardianDto {
