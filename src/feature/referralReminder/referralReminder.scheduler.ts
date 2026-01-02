@@ -92,7 +92,7 @@ export class ReferralReminderScheduler {
 
   private async sendReminder(reminder: any) {
     try {
-      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
+      console.log('reminder_data____', reminder);
       
       // Get token (you might need to adjust this based on your auth flow)
       const token = ''; // If needed for notification service

@@ -156,20 +156,21 @@ export class ReferralReminderService {
     if (parentDetails?.email && parentDetails?.mobile) {
       const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referral`;
 
-      // Create short URL
-    let createUrl = await this.urlService.createUrl({url: parentUrl});
-    let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+      // Create short URL for parent
+      let createUrl = await this.urlService.createUrl({url: parentUrl});
+      let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+      
       recipients.push({
-        type: ReminderRecipientType.PARENT, // ✅ Use enum
+        type: ReminderRecipientType.PARENT,
         email: parentDetails.email,
-        phone: String(parentDetails.mobile), // ✅ Convert to string
+        phone: String(parentDetails.mobile),
         name: `${parentDetails.first_name} ${parentDetails.last_name}`,
-        verificationUrl: shortUrl,
+        verificationUrl: shortUrl, // ✅ Already using short URL
         referredName: studentName,
       });
     }
 
-    const referrerRecipient = this.getReferrerRecipient(enquiryData, baseUrl);
+    const referrerRecipient = await this.getReferrerRecipient(enquiryData, baseUrl); // ✅ Make this async
     if (referrerRecipient) {
       recipients.push(referrerRecipient);
     }
@@ -217,7 +218,7 @@ export class ReferralReminderService {
     }
   }
 
-  private getReferrerRecipient(enquiryData: any, baseUrl: string): RecipientInfo | null {
+  private async getReferrerRecipient(enquiryData: any, baseUrl: string): Promise<RecipientInfo | null> {
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
     // Check for Employee Referral
@@ -228,12 +229,18 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found employee referrer: ${email}`);
+        
+        // ✅ Create short URL for employee referrer
+        const employeeUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: employeeUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`,
+          verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
         };
       }
@@ -247,12 +254,18 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found preschool referrer: ${email}`);
+        
+        // ✅ Create short URL for preschool referrer
+        const schoolUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: schoolUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`,
+          verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
         };
       }
@@ -266,12 +279,18 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found preschool referrer in other_details: ${email}`);
+        
+        // ✅ Create short URL
+        const schoolUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: schoolUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`,
+          verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
         };
       }
@@ -285,12 +304,18 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found corporate referrer: ${email}`);
+        
+        // ✅ Create short URL for corporate referrer
+        const corporateUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: corporateUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`,
+          verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
         };
       }
@@ -304,12 +329,18 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found corporate referrer in other_details: ${email}`);
+        
+        // ✅ Create short URL
+        const corporateUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: corporateUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`,
+          verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
         };
       }

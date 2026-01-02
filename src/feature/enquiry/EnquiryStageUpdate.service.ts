@@ -438,49 +438,11 @@ export class EnquiryStageUpdateService {
               this.loggerService.log(`Sending admission notification for enquiry: ${enquiryData.enquiry_number}`);
               
               try {
-                // Send Email
-                // await this.notificationService.sendNotification(
-                //   {
-                //     slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                //     employee_ids: [],
-                //     global_ids: [],
-                //     mail_to: [parentEmail],
-                //     sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
-                //     param: {
-                //       parentName: parentName,
-                //       studentName: studentName,
-                //       schoolName: enquiryData.school_location?.value,
-                //       academicYear: enquiryData.academic_year?.value,
-                //     }
-                //   },
-                //   token,
-                //   platform
-                // );
-
-                // Send SMS using template (fallback if notification service fails)
                 if (parentPhone) {
-                  
-                    const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                     let recepientDetails = await this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
-                    const recipientsWithShortUrls = [];
-                    //! based on the type of recepient we are sending sms for now its
-                    //! parent and refferal
 
-                    for (const recipient of recepientDetails) {
-                      // Build custom URL for each recipient type
-                      const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'referrer'}`;
-
-                      // Create short URL
-                      let createUrl = await this.urlService.createUrl({url: customUrl});
-                      let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
-                      
-                      recipientsWithShortUrls.push({
-                        ...recipient,
-                        shortUrl: shortUrl  // ✅ Store short URL for use in email
-                      });
-                    }
-
-                    const parentRecipient = recipientsWithShortUrls.find(r => r.type === 'parent');
+                    // Send email to parent with their short URL
+                    const parentRecipient = recepientDetails.find(r => r.type === 'parent');
                     if (parentRecipient && parentEmail) {
                       await this.notificationService.sendNotification(
                         {
@@ -494,18 +456,18 @@ export class EnquiryStageUpdateService {
                             studentName: studentName,
                             schoolName: enquiryData.school_location?.value,
                             academicYear: enquiryData.academic_year?.value,
-                            verificationUrl: parentRecipient.shortUrl  // ✅ USE SHORT URL
+                            verificationUrl: parentRecipient.verificationUrl  // ✅ Use pre-generated short URL
                           }
                         },
                         token,
                         platform
                       );
 
-                      this.loggerService.log(`✅ Admission email sent with short URL: ${parentRecipient.shortUrl}`);
+                      this.loggerService.log(`✅ Admission email sent with short URL: ${parentRecipient.verificationUrl}`);
                     }
 
-                    // ✅ SEND SMS TO ALL RECIPIENTS
-                    for (const recipient of recipientsWithShortUrls) {
+                    // ✅ Send SMS to all recipients using their pre-generated short URLs
+                    for (const recipient of recepientDetails) {
                       const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                       
                       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
@@ -513,7 +475,7 @@ export class EnquiryStageUpdateService {
                         studentName: studentName,
                         schoolName: enquiryData.school_location?.value || 'VIBGYOR',
                         academicYear: enquiryData.academic_year?.value || '',
-                        verificationUrl: recipient.shortUrl,  // ✅ USE SHORT URL
+                        verificationUrl: recipient.verificationUrl,  // ✅ Use pre-generated short URL
                         recipientName: recipient.name.split(' ')[0] || '', 
                       });
 
@@ -522,40 +484,7 @@ export class EnquiryStageUpdateService {
                         smsMessage
                       );
                     }
-                    
-                    this.loggerService.log(`✅ Admission notifications sent successfully to all recipients with short URLs`);
-
-                    // for (const recipient of recepientDetails) {
-                    //   // ✅ Build custom URL for each recipient type
-                    //   const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'referrer'}`;
-
-                    //   //! creating custom url for each recipient
-                    //   let createUrl = await this.urlService.createUrl({url: customUrl})
-                    //   // console.log('Created short URL record:', createUrl);
-
-                    //   let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
-                    //   // console.log(`URL: ${shortUrl}`);
-                      
-                    //   const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
-                    //     parentName: firstName,
-                    //     studentName: studentName,
-                    //     schoolName: enquiryData.school_location?.value || 'VIBGYOR',
-                    //     academicYear: enquiryData.academic_year?.value || '',
-                    //     verificationUrl: shortUrl,
-                    //     recipientName: recipient.name.split(' ')[0] || '', 
-                    //   });
-
-                    //   // console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
-
-                    //   await this.notificationService.sendDirectSMS(
-                    //     recipient.phone.toString(),
-                    //     smsMessage
-                    //   );
-                    // }
-                    
-                    // this.loggerService.log(`✅ Admission SMS sent successfully to all recipients`);
                 }
-
                 this.loggerService.log(`Admission notification sent successfully`);
               } catch (error) {
                 this.loggerService.error(`Error sending admission notification: ${error.message}`, error.stack);

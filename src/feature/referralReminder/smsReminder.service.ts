@@ -181,19 +181,9 @@ export class SmsReminderService {
   /**
    * Send reminder SMS to a single recipient
    */
-  async sendReminderSms(enquiryData: any, recipient: SmsRecipient): Promise<void> {
+  async sendReminderSms(enquiryData: any, recipient: SmsRecipient, shortUrl: string): Promise<void> {
     try {
-      const baseUrl = process.env.MARKETING_BASE_URL || 
-        'https://preprod-marketing-hubbleorion.hubblehox.com';
-
-      // Create custom URL for this recipient
-      const customUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'refferer'}`;
-
-      // Create short URL
-      const createUrl = await this.urlService.createUrl({ url: customUrl });
-      const shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
-
-      // Build reminder SMS message
+      // Build reminder SMS message1
       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_REMINDER, {
         recipientName: recipient.name.split(' ')[0] || recipient.name,
         verificationUrl: shortUrl,
@@ -228,7 +218,7 @@ export class SmsReminderService {
         const isVerified = this.isRecipientVerified(enquiryData, recipient.type);
         
         if (!isVerified) {
-          await this.sendReminderSms(enquiryData, recipient);
+          await this.sendReminderSms(enquiryData, recipient, shortUrl);
         } else {
           this.loggerService.log(`⏭️ Skipping ${recipient.name} - already verified`);
         }
