@@ -69,6 +69,8 @@ export class NotificationService {
       // this.logger.log(`URL: ${BaseUrl}/notification/send?${await this.getplatform(platform)}`);
       // this.logger.log(`Payload: ${JSON.stringify(notifypayload, null, 2)}`);
       // this.logger.log(`Token present: ${!!token}`);
+
+      console.log('notifypayload_____', notifypayload);
       
       const response = await axios.post(
         `${BaseUrl}/notification/send`,

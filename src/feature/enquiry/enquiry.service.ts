@@ -1257,15 +1257,9 @@ const feeData = await response.json();
             _id: 1,
             student_name: 1,
             enrolment_number: 1,
-            'parent_details.father_details.mobile': 1,
-            'parent_details.mother_details.mobile': 1,
-            'parent_details.guardian_details.mobile': 1,
-            'parent_details.father_details.first_name': 1,
-            'parent_details.mother_details.first_name': 1,
-            'parent_details.guardian_details.first_name': 1,
-            'parent_details.father_details.last_name': 1,
-            'parent_details.mother_details.last_name': 1,
-            'parent_details.guardian_details.last_name': 1,
+            'parent_details.father_details': 1,
+            'parent_details.mother_details': 1,
+            'parent_details.guardian_details': 1,
             'academic_year.value': 1
           }
         },
@@ -1300,7 +1294,34 @@ const feeData = await response.json();
           enrollment_number: enq.enrolment_number || null,
           parent_phone: parentPhone,
           parent_name: parentName,
-          academic_year: enq.academic_year?.value
+          academic_year: enq.academic_year?.value,
+          // Include all parent details
+          parent_details: {
+            father: father && Object.keys(father).length > 0 ? {
+              global_id: father.global_id || null,
+              first_name: father.first_name || null,
+              last_name: father.last_name || null,
+              mobile: father.mobile || null,
+              email: father.email || null,
+              country_code: father.country_code || null
+            } : null,
+            mother: mother && Object.keys(mother).length > 0 ? {
+              global_id: mother.global_id || null,
+              first_name: mother.first_name || null,
+              last_name: mother.last_name || null,
+              mobile: mother.mobile || null,
+              email: mother.email || null,
+              country_code: mother.country_code || null
+            } : null,
+            guardian: guardian && Object.keys(guardian).length > 0 ? {
+              first_name: guardian.first_name || null,
+              last_name: guardian.last_name || null,
+              mobile: guardian.mobile || null,
+              email: guardian.email || null,
+              relationship_with_child: guardian.relationship_with_child || null,
+              country_code: guardian.country_code || null
+            } : null
+          }
         };
       });
 
@@ -7601,19 +7622,18 @@ const feeData = await response.json();
 
   //! source wise conversion report - SANJEEV MAJHI
   async sourceWiseConversionReport(data) {
-    const {
-      start_date,
-      end_date,
-      filter_by, // "CC Only", "School Only", "All"
-      group_by,  // ["cluster", "school", "grade", "source", "sub_source"] - defines visible columns
-    } = data;
-
+      const {
+        start_date,
+        end_date,
+        filter_by, // "CC Only", "School Only", "All"
+        group_by,  // ["cluster", "school", "grade", "source", "sub_source"] - defines visible columns
+      } = data;
+  console.log(data);
     // Parse dates from DD-MM-YYYY format
     const parseDate = (dateStr: string) => {
       const [day, month, year] = dateStr.split('-');
       return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
     };
-
     // Build match conditions
     const matchConditions: any = {
       enquiry_date: {
@@ -7621,26 +7641,38 @@ const feeData = await response.json();
         $lte: parseDate(end_date)
       }
     };
-
     // Apply filter_by logic (CC Only, School Only, All)
     if (filter_by === "CC Only") {
       // Filter enquiries handled by Call Center
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"]
+      matchConditions["enquiry_mode.value"] = { 
+        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"] 
       };
     } else if (filter_by === "School Only") {
       // Filter enquiries handled by School directly
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Walkin", "Walkin (VMS)"]
+      matchConditions["enquiry_mode.value"] = { 
+        $in: ["Walkin", "Walkin (VMS)"] 
       };
     }
-
     const pipeline: any[] = [
       // 1️⃣ MATCH FILTERS
       {
         $match: matchConditions
       },
-
+      {
+        $lookup: {
+          from: 'enquiryLogs',
+          localField: '_id',
+          foreignField: 'enquiry_id',
+          as: 'enquiryLogs',
+          pipeline: [
+            {
+              $sort: {
+                _id: -1,
+              },
+            },
+          ],
+        },
+      },
       // 2️⃣ ADD COMPUTED FIELDS FOR STAGE TRACKING
       {
         $addFields: {
@@ -7652,14 +7684,11 @@ const feeData = await response.json();
                 as: "stage",
                 in: {
                   $and: [
-                    {
-                      $or: [
-                        { $eq: ["$$stage.stage_name", "Enquiry"] },
-                      ]
-                    },
+                    { $eq: ["$$stage.stage_name", "Enquiry"] },
                     {
                       $or: [
                         { $eq: ["$$stage.status", "Completed"] },
+                        { $eq: ["$$stage.status", "In Progress"] }
                       ]
                     }
                   ]
@@ -7667,9 +7696,27 @@ const feeData = await response.json();
               }
             }
           },
-
+          has_appoimnet: {
+            $anyElementTrue: {
+              $map: {
+                input: "$enquiry_stages",
+                as: "stage",
+                in: {
+                  $and: [
+                    { $eq: ["$$stage.stage_name", "School visit"] },
+                    {
+                      $or: [
+                        { $eq: ["$$stage.status", "Completed"] },
+                        { $eq: ["$$stage.status", "In Progress"] },
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
           // Check if "School visit" stage exists
-          has_school_visit_stage: {
+          has_walkeding: {
             $anyElementTrue: {
               $map: {
                 input: "$enquiry_stages",
@@ -7679,56 +7726,24 @@ const feeData = await response.json();
                     {
                       $or: [
                         { $eq: ["$$stage.stage_name", "School visit"] },
+                        { $eq: ["$$stage.stage_name", "Academic Kit Selling"] },
                       ]
                     },
-                    {
-                      $or: [
-                        { $eq: ["$$stage.status", "Completed"] },
-                      ]
-                    }
+                    { $eq: ["$$stage.status", "Completed"] }
                   ]
                 }
               }
             }
           },
-
-          // Check if "Registration" stage exists
-          has_registration_stage: {
-            $anyElementTrue: {
-              $map: {
-                input: "$enquiry_stages",
-                as: "stage",
-                in: {
-                  $and: [
-                    {
-                      $or: [
-                        { $eq: ["$$stage.stage_name", "Registration"] },
-                      ]
-                    },
-                    {
-                      $or: [
-                        { $eq: ["$$stage.status", "Completed"] },
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          },
-
           // Check if "Admitted" stage exists
           has_admission_stage: {
             $anyElementTrue: {
               $map: {
                 input: "$enquiry_stages",
                 as: "stage",
-                in: {
+                in: { 
                   $and: [
-                    {
-                      $or: [
-                        { $eq: ["$$stage.stage_name", "Admitted or Provisional Approval"] }
-                      ]
-                    },
+                    { $eq: ["$$stage.stage_name", "Admitted or Provisional Approval"] },
                     {
                       $or: [
                         { $eq: ["$$stage.status", "Provisional Admission"] },
@@ -7740,70 +7755,80 @@ const feeData = await response.json();
               }
             }
           },
-
-          // Determine if this enquiry should be EXCLUDED from QL
-          // Based on your RL/QL definition: exclude Spam, Duplicate, Admission Denied, Not Reachable
-          is_excluded_from_ql: {
-            $or: [
-              { $eq: ["$status", "Closed"] },
-              // Add more exclusion conditions based on your tags/status field
-              // For example, if you have a tags array:
-              // { $in: ["Spam", "$tags"] },
-              // { $in: ["Duplicate", "$tags"] },
+          // Check if any enquiryLog has status "Admission Granted"
+          has_qualifying_log_status: {
+            $anyElementTrue: {
+              $map: {
+                input: "$enquiryLogs",
+                as: "log",
+                in: {
+                  $or: [
+                    { $eq: ["$$log.log_data.status", "Admission Granted"] },
+                    { $eq: ["$$log.log_data.status", "Not Interested"] },
+                    { $eq: ["$$log.log_data.status", "Multiple contacts not reachable"] },
+                    { $eq: ["$$log.log_data.status", "Admission for AY Closed"] }
+                  ]
+                }
+              }
+            }
+          },
+          // Check if status is Open AND has both first_name and last_name
+          is_open_with_names: {
+            $and: [
+              { $eq: ["$status", "Open"] },
+              { $ne: ["$student_details.first_name", ""] },
+              { $ne: ["$student_details.last_name", ""] },
+              { $ne: ["$student_details.first_name", null] },
+              { $ne: ["$student_details.last_name", null] }
             ]
           }
         }
       },
-
+      // 2.5️⃣ ADD FINAL RL and QL FLAGS
+    {
+        $addFields: {
+          is_rl: {
+            $or: [
+              { $eq: [{ $arrayElemAt: ["$enquiry_stages.status", 0] }, "In Progress"] },
+              { $eq: [{ $arrayElemAt: ["$enquiry_stages.status", 0] }, "Completed"] },
+            ]
+          },
+          is_ql: {
+            $or: [
+              "$has_qualifying_log_status",
+              "$is_open_with_names"
+            ]
+          }
+        }
+      },
       // 3️⃣ GROUP BY DIMENSIONS (Based on group_by array)
       {
         $group: {
           _id: this.buildGroupByExpression(group_by),
-
           // Store school_id for cluster lookup
           school_id: { $first: "$school_location.id" },
-
           // RL = All enquiries that reached "Enquiry" stage
           total_raw_leads: {
-            $sum: { $cond: ["$has_enquiry_stage", 1, 0] }
+            $sum: { $cond: ["$is_rl", 1, 0] }
           },
-
-          // QL = Enquiries with "School visit" stage AND not excluded
+          // QL = 
           total_qualified_leads: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    "$has_school_visit_stage",
-                    { $eq: ["$is_excluded_from_ql", false] }
-                  ]
-                },
-                1,
-                0
-              ]
-            }
+            $sum: { $cond: ["$is_ql", 1, 0] }
           },
-
           // Appointment = School visit stage reached
           total_appointment: {
-            $sum: { $cond: ["$has_school_visit_stage", 1, 0] }
+            $sum: { $cond: ["$has_appoimnet", 1, 0] }
           },
-
           // Walk-in = 0 (placeholder as no specific walk-in stage exists)
-          total_walkin: { $sum: 0 },
-
-          // Registration
-          total_registration: {
-            $sum: { $cond: ["$has_registration_stage", 1, 0] }
+          total_walkin: { 
+            $sum: { $cond: ["$has_walkeding", 1, 0] }
           },
-
           // Admission
           total_admission: {
             $sum: { $cond: ["$has_admission_stage", 1, 0] }
           }
         }
       },
-
       // 4️⃣ PROJECT WITH CALCULATIONS
       {
         $project: {
@@ -7813,19 +7838,16 @@ const feeData = await response.json();
           grade: { $ifNull: ["$_id.grade", "N/A"] },
           source: { $ifNull: ["$_id.source", "N/A"] },
           sub_source: { $ifNull: ["$_id.sub_source", "N/A"] },
-
           // Metrics
           RL: "$total_raw_leads",
           QL: "$total_qualified_leads",
           Appt: "$total_appointment",
           Walkin: "$total_walkin",
           Admission: "$total_admission",
-
-          // Conversion Percentages (whole numbers)
           rl_to_ql_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_qualified_leads", "$total_raw_leads"] }, 100] },
                   0
@@ -7834,11 +7856,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           ql_to_appt_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_appointment", "$total_qualified_leads"] }, 100] },
                   0
@@ -7847,11 +7868,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           appt_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_appointment", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_appointment"] }, 100] },
                   0
@@ -7860,11 +7880,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           walkin_to_admission_percent: {
             $cond: [
               { $gt: ["$total_walkin", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_walkin"] }, 100] },
                   0
@@ -7873,11 +7892,10 @@ const feeData = await response.json();
               null  // Will be converted to "#DIV/0!"
             ]
           },
-
           rl_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_raw_leads"] }, 100] },
                   0
@@ -7886,11 +7904,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           rl_to_admission_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_raw_leads"] }, 100] },
                   0
@@ -7899,11 +7916,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           ql_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_qualified_leads"] }, 100] },
                   0
@@ -7912,11 +7928,10 @@ const feeData = await response.json();
               0
             ]
           },
-
           ql_to_admission_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              {
+              { 
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_qualified_leads"] }, 100] },
                   0
@@ -7927,36 +7942,80 @@ const feeData = await response.json();
           }
         }
       },
-
       // 5️⃣ SORT (Dynamic based on group_by)
       {
         $sort: this.buildSortExpression(group_by)
       }
     ];
-
+    console.log('pipline--->',JSON.stringify(pipeline));
     const reportData = await this.enquiryRepository.aggregate(pipeline);
-
     console.log('reportData--->', reportData[0]);
-
     if (!reportData.length) {
       throw new HttpException(
         'No data found for the provided filters',
         HttpStatus.NOT_FOUND,
       );
     }
-
+    const totals = {
+      RL: reportData.reduce((sum, row) => sum + (row.RL || 0), 0),
+      QL: reportData.reduce((sum, row) => sum + (row.QL || 0), 0),
+      Appt: reportData.reduce((sum, row) => sum + (row.Appt || 0), 0),
+      Walkin: reportData.reduce((sum, row) => sum + (row.Walkin || 0), 0),
+      Admission: reportData.reduce((sum, row) => sum + (row.Admission || 0), 0),
+    };
+    const totalPercentages = {
+      rl_to_ql: totals.RL > 0 ? Math.round((totals.QL / totals.RL) * 100) : 0,
+      ql_to_appt: totals.QL > 0 ? Math.round((totals.Appt / totals.QL) * 100) : 0,
+      appt_to_walkin: totals.Appt > 0 ? Math.round((totals.Walkin / totals.Appt) * 100) : 0,
+      walkin_to_admission: totals.Walkin > 0 ? Math.round((totals.Admission / totals.Walkin) * 100) : null,
+      rl_to_admission: totals.RL > 0 ? Math.round((totals.Admission / totals.RL) * 100) : 0,
+      rl_to_walkin: totals.RL > 0 ? Math.round((totals.Walkin / totals.RL) * 100) : 0,
+      ql_to_admission: totals.QL > 0 ? Math.round((totals.Admission / totals.QL) * 100) : 0,
+      ql_to_walkin: totals.QL > 0 ? Math.round((totals.Walkin / totals.QL) * 100) : 0,
+    };
+    // Create the Total row
+    const totalRow: any = {};
+    // Add dimension columns based on group_by array
+    if (group_by.includes('cluster')) {
+      totalRow['Cluster'] = 'Total';
+    }
+    if (group_by.includes('school')) {
+      totalRow['School'] = '';
+    }
+    if (group_by.includes('grade')) {
+      totalRow['Grade'] = '';
+    }
+    if (group_by.includes('source')) {
+      totalRow['Source'] = '';
+    }
+    if (group_by.includes('sub_source')) {
+      totalRow['Sub-Source'] = '';
+    }
+    // Add total metrics
+    totalRow['RL'] = totals.RL;
+    totalRow['QL'] = totals.QL;
+    totalRow['Appt'] = totals.Appt;
+    totalRow['Walkin'] = totals.Walkin;
+    totalRow['Admission'] = totals.Admission;
+    // Add total conversion percentages
+    totalRow['RL to QL %'] = `${totalPercentages.rl_to_ql}%`;
+    totalRow['QL to Appt %'] = `${totalPercentages.ql_to_appt}%`;
+    totalRow['Appt to Walkin%'] = `${totalPercentages.appt_to_walkin}%`;
+    totalRow['Walkin to Admission %'] = totalPercentages.walkin_to_admission === null ? '#DIV/0!' : `${totalPercentages.walkin_to_admission}%`;
+    totalRow['RL to Admission %'] = `${totalPercentages.rl_to_admission}%`;
+    totalRow['RL to Walkin%'] = `${totalPercentages.rl_to_walkin}%`;
+    totalRow['QL to Admission%'] = `${totalPercentages.ql_to_admission}%`;
+    totalRow['QL to Walkin%'] = `${totalPercentages.ql_to_walkin}%`;
     // Fetch cluster information from MDM service if cluster is in group_by
     let schoolClusterMap = {};
     if (group_by.includes('cluster')) {
       const schoolIds = [...new Set(reportData.map((e: any) => e.school_id).filter(Boolean))];
-
       if (schoolIds.length > 0) {
         try {
           const schoolDetails = await this.mdmService.postDataToAPI(
             MDM_API_URLS.SEARCH_SCHOOL,
             { operator: `school_id In (${schoolIds.toString()})` },
           );
-
           schoolDetails?.data.schools?.forEach((school: any) => {
             schoolClusterMap[school.school_id] = school?.cluster_name || 'NA';
           });
@@ -7965,11 +8024,9 @@ const feeData = await response.json();
         }
       }
     }
-
     // Format data for CSV based on visible columns (group_by)
     const formattedData = reportData.map((row: any) => {
       const formattedRow: any = {};
-
       // Add columns based on group_by array (these are the VISIBLE columns)
       if (group_by.includes('cluster')) {
         formattedRow['Cluster'] = schoolClusterMap[row.school_id] || 'NA';
@@ -7986,29 +8043,26 @@ const feeData = await response.json();
       if (group_by.includes('sub_source')) {
         formattedRow['Sub-Source'] = row.sub_source || 'NA';
       }
-
       // Add metrics (always visible)
       formattedRow['RL'] = row.RL || 0;
       formattedRow['QL'] = row.QL || 0;
       formattedRow['Appt'] = row.Appt || 0;
       formattedRow['Walkin'] = row.Walkin || 0;
       formattedRow['Admission'] = row.Admission || 0;
-
       // Add conversion percentages (always visible)
       formattedRow['RL to QL %'] = row.rl_to_ql_percent ? `${row.rl_to_ql_percent}%` : '0%';
       formattedRow['QL to Appt %'] = row.ql_to_appt_percent ? `${row.ql_to_appt_percent}%` : '0%';
       formattedRow['Appt to Walkin%'] = row.appt_to_walkin_percent ? `${row.appt_to_walkin_percent}%` : '0%';
-      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null
-        ? '#DIV/0!'
+      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null 
+        ? '#DIV/0!' 
         : `${row.walkin_to_admission_percent || 0}%`;
       formattedRow['RL to Admission %'] = row.rl_to_admission_percent ? `${row.rl_to_admission_percent}%` : '0%';
       formattedRow['RL to Walkin%'] = row.rl_to_walkin_percent ? `${row.rl_to_walkin_percent}%` : '0%';
       formattedRow['QL to Admission%'] = row.ql_to_admission_percent ? `${row.ql_to_admission_percent}%` : '0%';
       formattedRow['QL to Walkin%'] = row.ql_to_walkin_percent ? `${row.ql_to_walkin_percent}%` : '0%';
-
       return formattedRow;
     });
-
+    formattedData.unshift(totalRow);
     // Build CSV fields based on group_by (visible columns only)
     const fields = [];
     if (group_by.includes('cluster')) fields.push('Cluster');
@@ -8016,46 +8070,37 @@ const feeData = await response.json();
     if (group_by.includes('grade')) fields.push('Grade');
     if (group_by.includes('source')) fields.push('Source');
     if (group_by.includes('sub_source')) fields.push('Sub-Source');
-
     // Add metric fields (always visible)
     fields.push(
       'RL', 'QL', 'Appt', 'Walkin', 'Admission',
       'RL to QL %', 'QL to Appt %', 'Appt to Walkin%', 'Walkin to Admission %',
       'RL to Admission %', 'RL to Walkin%', 'QL to Admission%', 'QL to Walkin%'
     );
-
     // Generate filename with timestamp
     const date = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     const [month, day, year] = date.split(',')[0].split('/');
     const timestamp = date.split(',')[1].trimStart().split(' ')[0].split(':').join('');
     const filename = `Source-Wise-Conversion-Report-${day}-${month}-${year}-${timestamp}`;
-
     // Generate CSV
     const generatedCSV: any = await this.csvService.generateCsv(formattedData, fields, filename);
-
     // Create file from buffer
     const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
       Buffer.from(generatedCSV.csv),
       filename,
       'text/csv',
     );
-
     // Upload to storage
     await this.setFileUploadStorage();
     const uploadedFileName = await this.storageService.uploadFile(file, filename);
-
     const bucketName = this.configService.get<string>('BUCKET_NAME');
-
     if (!uploadedFileName) {
       throw new HttpException(
         'Something went wrong while uploading file!',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-
     // Generate signed URL
     const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
-
     return {
       url: signedUrl,
       fileName: uploadedFileName,
@@ -8072,7 +8117,8 @@ const feeData = await response.json();
         total_admissions: reportData.reduce((sum, row) => sum + (row.Admission || 0), 0),
       }
     };
-  }
+  } 
+ 
 
   // Helper: Build dynamic group by expression
   private buildGroupByExpression(group_by: string[]) {
@@ -8291,6 +8337,36 @@ const feeData = await response.json();
             },
           },
         },
+      },
+      
+      // follow-up remarks
+      {
+        $addFields: {
+          last_follow_up_remarks: {
+            $cond: {
+              if: { $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
+              then: {
+                $arrayElemAt: [
+                  { $ifNull: ['$lastFollowUps.remarks', []] },
+                  0,
+                ],
+              },
+              else: 'NA',
+            },
+          },
+        },
+      },
+
+      // lead generation time
+      {
+        $addFields: {
+          lead_generation_time: {
+            $dateToString: {
+              format: "%H:%M:%S",
+              date: "$created_at",
+            }
+          }
+        }
       },
 
       // overdue and document_status (safe filter input)
@@ -8645,6 +8721,9 @@ const feeData = await response.json();
               else: null,
             },
           },
+
+          lead_generation_time: 1,
+          last_follow_up_remarks: 1,
 
           next_follow_up_date_overdue_days: '$overdue_days_of_follow_up',
 
@@ -9175,6 +9254,7 @@ const feeData = await response.json();
         'School Id': e?.school_id ?? 'NA',
         'Enquiry No': e?.enquiry_number ?? 'NA',
         'Lead Generation Date': moment(e.enquiry_date).format('DD-MM-YYYY'),
+        'Lead Generation Time': e?.lead_generation_time ?? 'NA',
         'Student First Name': e?.student_first_name ?? 'NA',
         'Student Last Name': e?.student_last_name ?? 'NA',
         Board: e?.board ?? 'NA',
@@ -9220,6 +9300,7 @@ const feeData = await response.json();
         'Next Follow up action': 'NA',
         'Next Follow up date': followUpdate ?? 'NA',
         'Next Follow up overdue days': followUpdateOverdueDays ?? 'NA',
+        'Last Follow Up Remarks': e?.last_follow_up_remarks ?? 'NA',
         'Document Status': e?.document_status ?? 'NA',
         'UTM Source': e?.utm_source ?? 'NA',
         'UTM Medium': e?.utm_medium ?? 'NA',
@@ -9244,9 +9325,9 @@ const feeData = await response.json();
       },
     );
 
-    const schoolDataIds = schoolDetails.data.schools.map(
-      (school) => school.school_id,
-    );
+    // const schoolDataIds = schoolDetails.data.schools.map(
+    //   (school) => school.school_id || null,
+    // );
 
     const updatedRecords = [];
     if (schoolDetails?.data?.schools?.length) {
@@ -9291,6 +9372,7 @@ const feeData = await response.json();
       'Cluster',
       'Enquiry No',
       'Lead Generation Date',
+      'Lead Generation Time',
       'Student First Name',
       'Student Last Name',
       'Board',
@@ -9335,6 +9417,7 @@ const feeData = await response.json();
       'Next Follow up action',
       'Next Follow up date',
       'Next Follow up overdue days',
+      'Last Follow Up Remarks',
       'Document Status',
       'UTM Source',
       'UTM Medium',

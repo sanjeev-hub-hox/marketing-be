@@ -1872,8 +1872,8 @@ export class EnquiryController {
     @Res() res: Response,
     @Req() req: Request,
   ) {
-    const createdByDetails = extractCreatedByDetailsFromBody(req);
-    const { user_id } = createdByDetails;
+    // const createdByDetails = extractCreatedByDetailsFromBody(req);
+    // const { user_id } = createdByDetails;
 
     const cacheKey = `admission-enquiry-report`;
     const cachedData = await this.redisInstance?.getData(cacheKey);
@@ -2341,7 +2341,7 @@ export class EnquiryController {
     //   );
     // }
 
-    const result = await this.shortUrlService.getByHashUrl(body);
+    const result = await this.enquiryService.sourceWiseConversionReport(body);
 
     // await this.redisInstance?.setData(cacheKey, result, 60 * 10);
 

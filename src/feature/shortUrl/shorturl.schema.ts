@@ -16,13 +16,20 @@ export class ShortUrlSchema {
   @Prop({
     type: Date,
     default: Date.now,
-    // expires: 60 * 60 * 24 * 30, // 30 days in seconds
-    // expires: 60 * 60 * 24 * 15, // 15 days in seconds
-    expires: 60 * 30, // Half hour in seconds
   })
   expireAt: Date;
 }
 
 export type ShortUrlDocument = HydratedDocument<ShortUrlSchema>;
 export const shortUrlSchema = SchemaFactory.createForClass(ShortUrlSchema);
+
+// ✅ Add TTL index AFTER schema creation - this is the correct way
+shortUrlSchema.index(
+  { expireAt: 1 }, 
+  { 
+    expireAfterSeconds: 60 * 30, // 30 minutes in seconds (1800 seconds)
+    background: true // Create index in background to avoid blocking
+  }
+);
+
 export type ShortUrlModel = Model<ShortUrlSchema>;

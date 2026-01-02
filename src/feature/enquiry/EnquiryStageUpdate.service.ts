@@ -78,7 +78,7 @@ export class EnquiryStageUpdateService {
     this.enquiryDetails = await this.enquiryRepository.getById(
       new Types.ObjectId(enquiryId),
     );
-    this.enquiryStages = this.enquiryDetails.enquiry_stages;
+    this.enquiryStages = this.enquiryDetails?.enquiry_stages || [];
     return this;
   }
 
@@ -439,53 +439,83 @@ export class EnquiryStageUpdateService {
               
               try {
                 // Send Email
-                await this.notificationService.sendNotification(
-                  {
-                    slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                    employee_ids: [],
-                    global_ids: [],
-                    mail_to: [parentEmail],
-                    sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
-                    param: {
-                      parentName: parentName,
-                      studentName: studentName,
-                      schoolName: enquiryData.school_location?.value,
-                      academicYear: enquiryData.academic_year?.value,
-                    }
-                  },
-                  token,
-                  platform
-                );
+                // await this.notificationService.sendNotification(
+                //   {
+                //     slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+                //     employee_ids: [],
+                //     global_ids: [],
+                //     mail_to: [parentEmail],
+                //     sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
+                //     param: {
+                //       parentName: parentName,
+                //       studentName: studentName,
+                //       schoolName: enquiryData.school_location?.value,
+                //       academicYear: enquiryData.academic_year?.value,
+                //     }
+                //   },
+                //   token,
+                //   platform
+                // );
 
                 // Send SMS using template (fallback if notification service fails)
                 if (parentPhone) {
-                  try {
+                  
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                     let recepientDetails = this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
-                    
+                    const recipientsWithShortUrls = [];
                     //! based on the type of recepient we are sending sms for now its
                     //! parent and refferal
+
                     for (const recipient of recepientDetails) {
-                      // ✅ Build custom URL for each recipient type
+                      // Build custom URL for each recipient type
                       const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'referrer'}`;
 
-                      //! creating custom url for each recipient
-                      let createUrl = await this.urlService.createUrl({url: customUrl})
-                      // console.log('Created short URL record:', createUrl);
-
+                      // Create short URL
+                      let createUrl = await this.urlService.createUrl({url: customUrl});
                       let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
-                      // console.log(`URL: ${shortUrl}`);
+                      
+                      recipientsWithShortUrls.push({
+                        ...recipient,
+                        shortUrl: shortUrl  // ✅ Store short URL for use in email
+                      });
+                    }
+
+                    const parentRecipient = recipientsWithShortUrls.find(r => r.type === 'parent');
+                    if (parentRecipient && parentEmail) {
+                      await this.notificationService.sendNotification(
+                        {
+                          slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+                          employee_ids: [],
+                          global_ids: [],
+                          mail_to: [parentEmail],
+                          sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
+                          param: {
+                            parentName: parentName,
+                            studentName: studentName,
+                            schoolName: enquiryData.school_location?.value,
+                            academicYear: enquiryData.academic_year?.value,
+                            verificationUrl: parentRecipient.shortUrl  // ✅ USE SHORT URL
+                          }
+                        },
+                        token,
+                        platform
+                      );
+
+                      this.loggerService.log(`✅ Admission email sent with short URL: ${parentRecipient.shortUrl}`);
+                    }
+
+                    // ✅ SEND SMS TO ALL RECIPIENTS
+                    for (const recipient of recipientsWithShortUrls) {
+                      const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
                       
                       const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
                         parentName: firstName,
                         studentName: studentName,
                         schoolName: enquiryData.school_location?.value || 'VIBGYOR',
                         academicYear: enquiryData.academic_year?.value || '',
-                        verificationUrl: shortUrl,
+                        verificationUrl: recipient.shortUrl,  // ✅ USE SHORT URL
                         recipientName: recipient.name.split(' ')[0] || '', 
                       });
-
-                      // console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
 
                       await this.notificationService.sendDirectSMS(
                         recipient.phone.toString(),
@@ -493,10 +523,37 @@ export class EnquiryStageUpdateService {
                       );
                     }
                     
+                    this.loggerService.log(`✅ Admission notifications sent successfully to all recipients with short URLs`);
+
+                    // for (const recipient of recepientDetails) {
+                    //   // ✅ Build custom URL for each recipient type
+                    //   const customUrl = `${baseUrl}/referral-view/?id=${this.enquiryDetails._id}&type=${recipient.type}&action=${recipient.type === 'parent' ? 'referral' : 'referrer'}`;
+
+                    //   //! creating custom url for each recipient
+                    //   let createUrl = await this.urlService.createUrl({url: customUrl})
+                    //   // console.log('Created short URL record:', createUrl);
+
+                    //   let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+                    //   // console.log(`URL: ${shortUrl}`);
+                      
+                    //   const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
+                    //     parentName: firstName,
+                    //     studentName: studentName,
+                    //     schoolName: enquiryData.school_location?.value || 'VIBGYOR',
+                    //     academicYear: enquiryData.academic_year?.value || '',
+                    //     verificationUrl: shortUrl,
+                    //     recipientName: recipient.name.split(' ')[0] || '', 
+                    //   });
+
+                    //   // console.log(`Sending SMS to ${recipient.name} (${recipient.type}):`, smsMessage);
+
+                    //   await this.notificationService.sendDirectSMS(
+                    //     recipient.phone.toString(),
+                    //     smsMessage
+                    //   );
+                    // }
+                    
                     // this.loggerService.log(`✅ Admission SMS sent successfully to all recipients`);
-                  } catch (smsError) {
-                    this.loggerService.error(`❌ Error sending admission SMS: ${smsError.message}`, smsError.stack);
-                  }
                 }
 
                 this.loggerService.log(`Admission notification sent successfully`);
@@ -555,7 +612,7 @@ export class EnquiryStageUpdateService {
       }
     }
 
-    await this.enquiryRepository.updateById(this.enquiryDetails._id, {
+    await this.enquiryRepository.updateById(this.enquiryDetails?._id, {
       enquiry_stages: this.enquiryStages,
     });
     return;
@@ -576,10 +633,10 @@ export class EnquiryStageUpdateService {
     await classObject.updateCurrentAndNextStage();
     // Logs
     this.loggerService.log(
-      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails._id.toString()}][Current Stage - ${this.currentStage}][Current Stage Index - ${this.currentStageIndex}][Current Stage Status - ${this.enquiryStages[this.currentStageIndex].status}]`,
+      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails?._id.toString()}][Current Stage - ${this.currentStage}][Current Stage Index - ${this.currentStageIndex}][Current Stage Status - ${this.enquiryStages[this.currentStageIndex].status}]`,
     );
     this.loggerService.log(
-      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails._id.toString()}][Next Stage - ${this.nextStage}][Next Stage Index - ${this.nextStageIndex}][Next Stage Status - ${this.enquiryStages[this.nextStageIndex].status}]`,
+      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails?._id.toString()}][Next Stage - ${this.nextStage}][Next Stage Index - ${this.nextStageIndex}][Next Stage Status - ${this.enquiryStages[this.nextStageIndex].status}]`,
     );
   }
 

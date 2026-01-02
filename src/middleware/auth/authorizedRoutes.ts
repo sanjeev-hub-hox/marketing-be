@@ -100,6 +100,14 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
+    path: '/enquiry/ay/admission-enquiry-report',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/:id/move-to-next-stage',
+    method: RequestMethod.PATCH,
+  },
+  {
     path: 'enquiry/handleReopn',
     method: RequestMethod.POST,
   },
@@ -119,9 +127,5 @@ export const excludedRoutes = [
   {
     path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/:id/move-to-next-stage',
-    method: RequestMethod.PATCH,
   },
 ];

@@ -196,6 +196,17 @@ export class WorkflowService {
     additionalDetails: Record<string, any> = null,
     req: Request,
   ) {
+    const {
+      academic_year,
+      school_location,
+      brand,
+      board,
+      course,
+      stream,
+      shift,
+      student_details,
+      previousEnrolmentDetails,
+    } = enquiryDetails;
     switch (enquiryDetails.other_details.enquiry_type) {
       case EEnquiryType.NEW_ADMISSION:
         const param: OtherParamDto = {
@@ -203,6 +214,16 @@ export class WorkflowService {
             student_name: `${enquiryDetails?.student_details.first_name} ${enquiryDetails?.student_details.first_name}`,
           },
           description_variables: {
+            student_name: `${enquiryDetails.student_details.first_name} ${enquiryDetails.student_details.last_name}`,
+            enrolment_number: student_details?.enrolment_number,
+            academic_year: academic_year?.value,
+            school_location: school_location?.value,
+            brand: brand?.value,
+            board: board?.value,
+            grade: student_details?.grade?.value,
+            course: course?.value,
+            stream: stream?.value,
+            shift: shift?.value,
             result: additionalDetails?.status,
           },
         };
@@ -255,17 +276,6 @@ export class WorkflowService {
         break;
       case EEnquiryType.ADMISSION_10_11:
       case EEnquiryType.IVT:
-        const {
-          academic_year,
-          school_location,
-          brand,
-          board,
-          course,
-          stream,
-          shift,
-          student_details,
-          previousEnrolmentDetails,
-        } = enquiryDetails;
 
         const {
           school_location: earlier_school_location,
