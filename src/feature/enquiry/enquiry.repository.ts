@@ -121,8 +121,4 @@ getManyL(
   getCount(filter: Record<string, any>): Promise<number> {
     return this.enquiryModel.countDocuments(filter);
   }
-
-  aggregateCursor(pipeline: any[]) {
-    return this.enquiryModel.aggregate(pipeline).cursor();
-  }
 }

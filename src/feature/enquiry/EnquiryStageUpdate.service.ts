@@ -78,7 +78,7 @@ export class EnquiryStageUpdateService {
     this.enquiryDetails = await this.enquiryRepository.getById(
       new Types.ObjectId(enquiryId),
     );
-    this.enquiryStages = this.enquiryDetails?.enquiry_stages || [];
+    this.enquiryStages = this.enquiryDetails.enquiry_stages;
     return this;
   }
 
@@ -461,7 +461,7 @@ export class EnquiryStageUpdateService {
                 if (parentPhone) {
                   
                     const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
-                    let recepientDetails = this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
+                    let recepientDetails = await this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
                     const recipientsWithShortUrls = [];
                     //! based on the type of recepient we are sending sms for now its
                     //! parent and refferal
@@ -612,7 +612,7 @@ export class EnquiryStageUpdateService {
       }
     }
 
-    await this.enquiryRepository.updateById(this.enquiryDetails?._id, {
+    await this.enquiryRepository.updateById(this.enquiryDetails._id, {
       enquiry_stages: this.enquiryStages,
     });
     return;
@@ -633,10 +633,10 @@ export class EnquiryStageUpdateService {
     await classObject.updateCurrentAndNextStage();
     // Logs
     this.loggerService.log(
-      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails?._id.toString()}][Current Stage - ${this.currentStage}][Current Stage Index - ${this.currentStageIndex}][Current Stage Status - ${this.enquiryStages[this.currentStageIndex].status}]`,
+      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails._id.toString()}][Current Stage - ${this.currentStage}][Current Stage Index - ${this.currentStageIndex}][Current Stage Status - ${this.enquiryStages[this.currentStageIndex].status}]`,
     );
     this.loggerService.log(
-      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails?._id.toString()}][Next Stage - ${this.nextStage}][Next Stage Index - ${this.nextStageIndex}][Next Stage Status - ${this.enquiryStages[this.nextStageIndex].status}]`,
+      `[Move to Next Stage][EnquiryId - ${this.enquiryDetails._id.toString()}][Next Stage - ${this.nextStage}][Next Stage Index - ${this.nextStageIndex}][Next Stage Status - ${this.enquiryStages[this.nextStageIndex].status}]`,
     );
   }
 

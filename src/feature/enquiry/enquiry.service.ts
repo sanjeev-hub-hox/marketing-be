@@ -8338,36 +8338,6 @@ const feeData = await response.json();
           },
         },
       },
-      
-      // follow-up remarks
-      {
-        $addFields: {
-          last_follow_up_remarks: {
-            $cond: {
-              if: { $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
-              then: {
-                $arrayElemAt: [
-                  { $ifNull: ['$lastFollowUps.remarks', []] },
-                  0,
-                ],
-              },
-              else: 'NA',
-            },
-          },
-        },
-      },
-
-      // lead generation time
-      {
-        $addFields: {
-          lead_generation_time: {
-            $dateToString: {
-              format: "%H:%M:%S",
-              date: "$created_at",
-            }
-          }
-        }
-      },
 
       // overdue and document_status (safe filter input)
       {
@@ -8721,9 +8691,6 @@ const feeData = await response.json();
               else: null,
             },
           },
-
-          lead_generation_time: 1,
-          last_follow_up_remarks: 1,
 
           next_follow_up_date_overdue_days: '$overdue_days_of_follow_up',
 
@@ -9254,7 +9221,6 @@ const feeData = await response.json();
         'School Id': e?.school_id ?? 'NA',
         'Enquiry No': e?.enquiry_number ?? 'NA',
         'Lead Generation Date': moment(e.enquiry_date).format('DD-MM-YYYY'),
-        'Lead Generation Time': e?.lead_generation_time ?? 'NA',
         'Student First Name': e?.student_first_name ?? 'NA',
         'Student Last Name': e?.student_last_name ?? 'NA',
         Board: e?.board ?? 'NA',
@@ -9300,7 +9266,6 @@ const feeData = await response.json();
         'Next Follow up action': 'NA',
         'Next Follow up date': followUpdate ?? 'NA',
         'Next Follow up overdue days': followUpdateOverdueDays ?? 'NA',
-        'Last Follow Up Remarks': e?.last_follow_up_remarks ?? 'NA',
         'Document Status': e?.document_status ?? 'NA',
         'UTM Source': e?.utm_source ?? 'NA',
         'UTM Medium': e?.utm_medium ?? 'NA',
@@ -9325,9 +9290,9 @@ const feeData = await response.json();
       },
     );
 
-    // const schoolDataIds = schoolDetails.data.schools.map(
-    //   (school) => school.school_id || null,
-    // );
+    const schoolDataIds = schoolDetails.data.schools.map(
+      (school) => school.school_id,
+    );
 
     const updatedRecords = [];
     if (schoolDetails?.data?.schools?.length) {
@@ -9372,7 +9337,6 @@ const feeData = await response.json();
       'Cluster',
       'Enquiry No',
       'Lead Generation Date',
-      'Lead Generation Time',
       'Student First Name',
       'Student Last Name',
       'Board',
@@ -9417,7 +9381,6 @@ const feeData = await response.json();
       'Next Follow up action',
       'Next Follow up date',
       'Next Follow up overdue days',
-      'Last Follow Up Remarks',
       'Document Status',
       'UTM Source',
       'UTM Medium',

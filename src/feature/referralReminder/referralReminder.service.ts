@@ -15,6 +15,7 @@ import {
 import { ReminderRepository } from './referralReminder.repository';
 import { ReminderStatus } from './referralReminder.schema';
 import { ReminderRecipientType } from './referralReminder.schema';
+import { ShortUrlService } from '../shortUrl/shorturl.service';
 
 @Injectable()
 export class ReferralReminderService {
@@ -25,6 +26,7 @@ export class ReferralReminderService {
     private readonly loggerService: LoggerService,
     private readonly verificationTracker: VerificationTrackerService,
     private readonly reminderRepository: ReminderRepository,
+    private urlService: ShortUrlService,
   ) {}
 
   private calculateNextSchedule(startDate: Date, hoursToAdd: number): Date {
@@ -39,8 +41,8 @@ export class ReferralReminderService {
     platform: string,
   ): Promise<void> {
     try {
-      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL');
-      const recipients = this.getAllRecipients(enquiryData, baseUrl);
+      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 'https://preprod-marketing-hubbleorion.hubblehox.com';
+      const recipients = await this.getAllRecipients(enquiryData, baseUrl);
       const config = referralReminderConfig;
 
       // this.loggerService.log(`[REFERRAL] 📧 Sending initial notifications to ${recipients.length} recipients`);
@@ -144,7 +146,7 @@ export class ReferralReminderService {
     return this.verificationTracker.getVerificationStatus(enquiryId);
   }
 
-  getAllRecipients(enquiryData: any, baseUrl: string): RecipientInfo[] {
+  async getAllRecipients(enquiryData: any, baseUrl: string): Promise<RecipientInfo[]> {
     const recipients: RecipientInfo[] = [];
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
@@ -153,12 +155,16 @@ export class ReferralReminderService {
 
     if (parentDetails?.email && parentDetails?.mobile) {
       const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referral`;
+
+      // Create short URL
+    let createUrl = await this.urlService.createUrl({url: parentUrl});
+    let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
       recipients.push({
         type: ReminderRecipientType.PARENT, // ✅ Use enum
         email: parentDetails.email,
         phone: String(parentDetails.mobile), // ✅ Convert to string
         name: `${parentDetails.first_name} ${parentDetails.last_name}`,
-        verificationUrl: parentUrl,
+        verificationUrl: shortUrl,
         referredName: studentName,
       });
     }

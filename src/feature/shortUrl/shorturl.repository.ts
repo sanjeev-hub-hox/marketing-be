@@ -14,7 +14,10 @@ export class ShortUrlRepository {
   }
 
   create(data: any): Promise<ShortUrlDocument> {
-    return this.ShortUrlModel.create(data);
+    return this.ShortUrlModel.create({
+      ...data,
+      expireAt: new Date(Date.now() + 2 * 60 * 1000),
+    });
   }
 
   findByHash(hash: string): Promise<ShortUrlDocument | null> {

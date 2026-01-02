@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import mongoose, { HydratedDocument, Model } from 'mongoose';
+import { HydratedDocument, Model } from 'mongoose';
 
 @Schema({
   collection: 'shortUrl',
@@ -13,9 +13,10 @@ export class ShortUrlSchema {
   @Prop({ required: true, unique: true })
   hash: string;
 
+  // ✅ Store ACTUAL expiry time (not now)
   @Prop({
     type: Date,
-    default: Date.now,
+    required: true
   })
   expireAt: Date;
 }
@@ -23,12 +24,11 @@ export class ShortUrlSchema {
 export type ShortUrlDocument = HydratedDocument<ShortUrlSchema>;
 export const shortUrlSchema = SchemaFactory.createForClass(ShortUrlSchema);
 
-// ✅ Add TTL index AFTER schema creation - this is the correct way
+// ✅ TTL: delete exactly at expireAt
 shortUrlSchema.index(
-  { expireAt: 1 }, 
-  { 
-    expireAfterSeconds: 60 * 30, // 30 minutes in seconds (1800 seconds)
-    background: true // Create index in background to avoid blocking
+  { expireAt: 1 },
+  {
+    expireAfterSeconds: 0
   }
 );
 
