@@ -42,19 +42,82 @@ export class ReferralReminderService {
   ): Promise<void> {
     try {
       const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 'https://preprod-marketing-hubbleorion.hubblehox.com';
+      
+      // ✅ Get all recipients with pre-generated short URLs (generated ONCE)
       const recipients = await this.getAllRecipients(enquiryData, baseUrl);
       const config = referralReminderConfig;
 
-      // this.loggerService.log(`[REFERRAL] 📧 Sending initial notifications to ${recipients.length} recipients`);
+      this.loggerService.log(`[REFERRAL] 📧 Processing ${recipients.length} recipients`);
 
-      // Send initial notifications
-      for (const recipient of recipients) {
-        await this.sendNotification(recipient, enquiryData, token, platform);
+      // ================================================================
+      // STEP 1: Send INITIAL EMAIL notification (admission notification for parent only)
+      // ================================================================
+      const parentRecipient = recipients.find(r => r.type === ReminderRecipientType.PARENT);
+      
+      if (parentRecipient) {
+        const parentType = enquiryData?.other_details?.parent_type || 'Father';
+        const parentDetails = this.getParentDetails(enquiryData, parentType);
+        const parentName = `${parentDetails?.first_name || ''} ${parentDetails?.last_name || ''}`.trim() || parentType;
+        const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
+        
+        try {
+          // Send admission email with referral verification link
+          await this.notificationService.sendNotification(
+            {
+              slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+              employee_ids: [],
+              global_ids: [],
+              mail_to: [parentRecipient.email],
+              sms_to: [],
+              param: {
+                parentName: parentName,
+                studentName: studentName,
+                schoolName: enquiryData.school_location?.value,
+                academicYear: enquiryData.academic_year?.value,
+                verificationUrl: parentRecipient.verificationUrl  // ✅ Use pre-generated short URL
+              }
+            },
+            token,
+            platform
+          );
+
+          this.loggerService.log(`✅ Admission email sent to parent with short URL: ${parentRecipient.verificationUrl}`);
+        } catch (error) {
+          this.loggerService.error(`❌ Failed to send admission email: ${error.message}`, error.stack);
+        }
       }
 
-      // this.loggerService.log(`[REFERRAL] ✅ Initial notifications sent`);
+      // ================================================================
+      // STEP 2: Send INITIAL SMS to ALL recipients (parent + referrer)
+      // ================================================================
+      const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
+      const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
+      
+      for (const recipient of recipients) {
+        try {
+          const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
+            parentName: studentName,
+            studentName: studentName,
+            schoolName: enquiryData.school_location?.value || 'VIBGYOR',
+            academicYear: enquiryData.academic_year?.value || '',
+            verificationUrl: recipient.verificationUrl,  // ✅ Use pre-generated short URL
+            recipientName: recipient.name.split(' ')[0] || '',
+          });
 
-      // Calculate reminder schedule
+          await this.notificationService.sendDirectSMS(
+            recipient.phone.toString().slice(-10),
+            smsMessage
+          );
+
+          this.loggerService.log(`✅ Initial SMS sent to ${recipient.type}: ${recipient.name}`);
+        } catch (error) {
+          this.loggerService.error(`❌ Failed to send SMS to ${recipient.name}: ${error.message}`, error.stack);
+        }
+      }
+
+      // ================================================================
+      // STEP 3: Create reminder records in database for automated reminders
+      // ================================================================
       const maxReminders = config.frequency * config.duration;
       const hoursInterval = 24 / config.frequency;
       const startDate = new Date();
@@ -91,25 +154,15 @@ export class ReferralReminderService {
             error_logs: [],
           });
 
-          // this.loggerService.log(
-          //   `[REFERRAL] ✅ Reminder record created for ${recipient.type}: ${recipient.email}`
-          // );
+          this.loggerService.log(`✅ Reminder record created for ${recipient.type}: ${recipient.email}`);
         } catch (error) {
-          this.loggerService.error(
-            `[REFERRAL] ❌ Failed to create reminder record for ${recipient.email}: ${error.message}`,
-            error.stack
-          );
+          this.loggerService.error(`❌ Failed to create reminder record for ${recipient.email}: ${error.message}`, error.stack);
         }
       }
 
-      this.loggerService.log(
-        `[REFERRAL] ✅ All reminder records created for enquiry: ${enquiryData.enquiry_number}`,
-      );
+      this.loggerService.log(`✅ All reminder records created for enquiry: ${enquiryData.enquiry_number}`);
     } catch (error) {
-      this.loggerService.error(
-        `[REFERRAL] ❌ Error scheduling reminders: ${error.message}`,
-        error.stack,
-      );
+      this.loggerService.error(`❌ Error scheduling reminders: ${error.message}`, error.stack);
     }
   }
 
@@ -165,12 +218,12 @@ export class ReferralReminderService {
         email: parentDetails.email,
         phone: String(parentDetails.mobile),
         name: `${parentDetails.first_name} ${parentDetails.last_name}`,
-        verificationUrl: shortUrl, // ✅ Already using short URL
+        verificationUrl: shortUrl,
         referredName: studentName,
       });
     }
 
-    const referrerRecipient = await this.getReferrerRecipient(enquiryData, baseUrl); // ✅ Make this async
+    const referrerRecipient = await this.getReferrerRecipient(enquiryData, baseUrl); 
     if (referrerRecipient) {
       recipients.push(referrerRecipient);
     }
@@ -240,7 +293,7 @@ export class ReferralReminderService {
           email,
           phone: String(phone),
           name,
-          verificationUrl: shortUrl, // ✅ Use short URL
+          verificationUrl: shortUrl, 
           referredName: studentName,
         };
       }
@@ -254,18 +307,16 @@ export class ReferralReminderService {
       
       if (email && phone) {
         this.loggerService.log(`[REFERRAL] Found preschool referrer: ${email}`);
-        
-        // ✅ Create short URL for preschool referrer
         const schoolUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`;
         let createUrl = await this.urlService.createUrl({url: schoolUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER,
+          type: ReminderRecipientType.REFERRER, // ✅ Use enum
           email,
-          phone: String(phone),
+          phone: String(phone), // ✅ Convert to string
           name,
-          verificationUrl: shortUrl, // ✅ Use short URL
+          verificationUrl: shortUrl, 
           referredName: studentName,
         };
       }
@@ -286,9 +337,9 @@ export class ReferralReminderService {
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER,
+          type: ReminderRecipientType.REFERRER, // ✅ Use enum
           email,
-          phone: String(phone),
+          phone: String(phone), // ✅ Convert to string
           name,
           verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
@@ -311,9 +362,9 @@ export class ReferralReminderService {
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER,
+          type: ReminderRecipientType.REFERRER, // ✅ Use enum
           email,
-          phone: String(phone),
+          phone: String(phone), // ✅ Convert to string
           name,
           verificationUrl: shortUrl, // ✅ Use short URL
           referredName: studentName,
@@ -336,11 +387,11 @@ export class ReferralReminderService {
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER,
+          type: ReminderRecipientType.REFERRER, // ✅ Use enum
           email,
-          phone: String(phone),
+          phone: String(phone), // ✅ Convert to string
           name,
-          verificationUrl: shortUrl, // ✅ Use short URL
+          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`,
           referredName: studentName,
         };
       }

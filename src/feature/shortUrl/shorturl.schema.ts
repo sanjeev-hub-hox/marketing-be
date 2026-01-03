@@ -7,16 +7,16 @@ import { HydratedDocument, Model } from 'mongoose';
 })
 export class ShortUrlSchema {
 
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })  // Add index here
   url: string;
 
-  @Prop({ required: true, unique: true })
+  @Prop({ required: true, unique: true, index: true })  // Already has unique index
   hash: string;
 
-  // ✅ Store ACTUAL expiry time (not now)
   @Prop({
     type: Date,
-    required: true
+    required: true,
+    index: true  
   })
   expireAt: Date;
 }
@@ -24,12 +24,13 @@ export class ShortUrlSchema {
 export type ShortUrlDocument = HydratedDocument<ShortUrlSchema>;
 export const shortUrlSchema = SchemaFactory.createForClass(ShortUrlSchema);
 
+// ✅ Compound index for url + expireAt queries (most efficient)
+shortUrlSchema.index({ url: 1, expireAt: 1 });
+
 // ✅ TTL: delete exactly at expireAt
 shortUrlSchema.index(
   { expireAt: 1 },
-  {
-    expireAfterSeconds: 0
-  }
+  { expireAfterSeconds: 0 }
 );
 
 export type ShortUrlModel = Model<ShortUrlSchema>;

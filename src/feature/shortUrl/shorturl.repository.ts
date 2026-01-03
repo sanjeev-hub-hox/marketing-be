@@ -16,7 +16,7 @@ export class ShortUrlRepository {
   create(data: any): Promise<ShortUrlDocument> {
     return this.ShortUrlModel.create({
       ...data,
-      expireAt: new Date(Date.now() + 2 * 60 * 1000),
+      expireAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
     });
   }
 
@@ -24,7 +24,47 @@ export class ShortUrlRepository {
     return this.ShortUrlModel.findOne({ hash }).exec();
   }
 
+  // ✅ NEW: Find by URL
+  findByUrl(url: string): Promise<ShortUrlDocument | null> {
+    return this.ShortUrlModel.findOne({ url }).exec();
+  }
+
+  findByUrlAndNotExpired(url: string): Promise<ShortUrlDocument | null> {
+    return this.ShortUrlModel.findOne({
+      url,
+      expireAt: { $gt: new Date() }
+    })
+    .exec();
+  }
+
+  // ✅ NEW: Check if URL exists and is not expired
+  async isUrlValid(url: string): Promise<boolean> {
+    console.log('controller_url___', url)
+    const record = await this.ShortUrlModel.findOne({ url }).exec();
+    
+    if (!record) {
+      return false; // URL doesn't exist in shortUrl collection
+    }
+
+    // Check if expired
+    const now = new Date();
+    if (record.expireAt && now > record.expireAt) {
+      return false; // URL exists but has expired
+    }
+
+    return true; // URL exists and is still valid
+  }
+
   findById(id: string): Promise<ShortUrlDocument | null> {
     return this.ShortUrlModel.findById(id).exec();
+  }
+
+  // ✅ NEW: Update click count
+  async updateByHash(hash: string, update: any): Promise<ShortUrlDocument | null> {
+    return this.ShortUrlModel.findOneAndUpdate(
+      { hash },
+      { $set: update },
+      { new: true }
+    ).exec();
   }
 }

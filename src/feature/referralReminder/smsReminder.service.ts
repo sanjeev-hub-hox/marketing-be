@@ -218,6 +218,11 @@ export class SmsReminderService {
         const isVerified = this.isRecipientVerified(enquiryData, recipient.type);
         
         if (!isVerified) {
+          // ✅ Create short URL for this recipient
+          const customUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=${recipient.type}&action=${recipient.type}`;
+          const createUrl = await this.urlService.createUrl({ url: customUrl });
+          const shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+          
           await this.sendReminderSms(enquiryData, recipient, shortUrl);
         } else {
           this.loggerService.log(`⏭️ Skipping ${recipient.name} - already verified`);

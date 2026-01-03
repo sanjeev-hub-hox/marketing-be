@@ -50,4 +50,19 @@ export class ShortUrlService {
   async getByHashUrl(hash: string): Promise<ShortUrlDocument | null> {
     return await this.shortUrlRepository.findByHash(hash);
   }
+
+  async getByUrl(url: string): Promise<ShortUrlDocument | null> {
+    return await this.shortUrlRepository.findByUrl(url);
+  }
+
+  async isUrlValid(url: string): Promise<boolean> {
+    try {
+      // Use findOne with url and expireAt check in a single query
+      const record = await this.shortUrlRepository.findByUrlAndNotExpired(url);
+      return !!record;
+    } catch (error) {
+      console.error('Error checking URL validity:', error);
+      return false;
+    }
+  }
 }

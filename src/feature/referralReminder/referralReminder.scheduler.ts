@@ -92,10 +92,7 @@ export class ReferralReminderScheduler {
 
   private async sendReminder(reminder: any) {
     try {
-      console.log('reminder_data____', reminder);
-      
-      // Get token (you might need to adjust this based on your auth flow)
-      const token = ''; // If needed for notification service
+      const token = '';
       const platform = 'web';
 
       await this.notificationService.sendNotification(
@@ -119,9 +116,20 @@ export class ReferralReminderScheduler {
         platform
       );
 
-      this.logger.log(
-        `[REMINDER] 📧 Reminder sent to ${reminder.recipient_type}: ${reminder.recipient_email}`
+      // ✅ Send SMS reminder
+      const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
+      
+      const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_REMINDER, {
+        recipientName: reminder.recipient_name.split(' ')[0] || '',
+        verificationUrl: reminder.referral_details?.verification_url,  // ✅ Use stored short URL
+      });
+
+      await this.notificationService.sendDirectSMS(
+        reminder.recipient_phone.toString().slice(-10),
+        smsMessage
       );
+
+      this.logger.log(`✅ Reminder (email + SMS) sent to ${reminder.recipient_type}: ${reminder.recipient_email}`);
     } catch (error) {
       this.logger.error(
         `[REMINDER] ❌ Failed to send reminder: ${error.message}`,

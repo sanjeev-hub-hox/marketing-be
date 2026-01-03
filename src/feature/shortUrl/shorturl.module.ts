@@ -13,7 +13,7 @@ import { ShortUrlRepository } from "./shorturl.repository";
     ],
     controllers: [ShortUrlController],
     providers: [ ShortUrlService, ShortUrlRepository],
-    exports: [ ShortUrlService]
+    exports: [ ShortUrlService, ShortUrlRepository]
 })
 export class ShortUrlModule { }
 

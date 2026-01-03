@@ -39,6 +39,7 @@ import { EmailService } from '../../global/global.email.service';
 import { NotificationService } from '../../global/notification.service';
 import { ReferralReminderService } from '../referralReminder/referralReminder.service';
 import { ShortUrlService } from '../shortUrl/shorturl.service';
+import { SmsReminderService } from '../referralReminder/smsReminder.service';
 
 @Injectable({ scope: Scope.TRANSIENT })
 export class EnquiryStageUpdateService {
@@ -53,8 +54,6 @@ export class EnquiryStageUpdateService {
     status: string;
   }[];
   request: Request;
-  smsReminderService: any;
-
   constructor(
     private enquiryRepository: EnquiryRepository,
     private enquiryHelperService: EnquiryHelper,
@@ -72,6 +71,7 @@ export class EnquiryStageUpdateService {
     private notificationService: NotificationService,
     private referralReminderService: ReferralReminderService,
     private urlService: ShortUrlService,
+    private smsReminderService: SmsReminderService,
   ) {}
 
   async getEnquiryStages(enquiryId: string) {
@@ -379,34 +379,15 @@ export class EnquiryStageUpdateService {
                   ? EEnquiryStageStatus.ADMITTED
                   : EEnquiryStageStatus.PROVISIONAL_ADMISSION;
 
-              // below function sends notification
-              const globalIds = [];
-              const employeeId = [];
-
-              const { parent_details, other_details, assigned_to_id } =
-                this.enquiryDetails;
-
-              globalIds.push(
-                other_details?.parent_type === 'Guardian'
-                  ? parent_details?.guardian_details?.global_id
-                  : other_details?.parent_type === 'Father'
-                    ? parent_details?.father_details?.global_id
-                    : parent_details?.mother_details?.global_id,
-              );
-              employeeId.push(assigned_to_id);
-
               // Fetch fresh enquiry data
               const enquiryData = await this.enquiryRepository.getById(
                 new Types.ObjectId(this.enquiryDetails._id)
               );
               
-              const baseUrl = process.env.MARKETING_BASE_URL || 
-                'https://preprod-marketing-hubbleorion.hubblehox.com';
-
               const token = this.request?.headers?.authorization?.replace('Bearer ', '') || '';
               const platform = 'web';
 
-              // Get parent details for admission notification
+              // Get parent details
               const parentType = enquiryData?.other_details?.parent_type || 'Father';
               const getParentDetails = () => {
                 switch (parentType) {
@@ -429,69 +410,10 @@ export class EnquiryStageUpdateService {
               const parentEmail = parentDetails?.email;
               const parentPhone = parentDetails?.mobile;
               const parentName = `${parentDetails?.first_name || ''} ${parentDetails?.last_name || ''}`.trim() || parentType;
-              const firstName = `${parentDetails?.first_name}`.trim() || parentType;
               const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
               // ================================================================
               // STEP 1: Send general admission notification (NOT referral-related)
-              // ================================================================
-              this.loggerService.log(`Sending admission notification for enquiry: ${enquiryData.enquiry_number}`);
-              
-              try {
-                if (parentPhone) {
-                    let recepientDetails = await this.referralReminderService.getAllRecipients(enquiryData, baseUrl);
-
-                    // Send email to parent with their short URL
-                    const parentRecipient = recepientDetails.find(r => r.type === 'parent');
-                    if (parentRecipient && parentEmail) {
-                      await this.notificationService.sendNotification(
-                        {
-                          slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                          employee_ids: [],
-                          global_ids: [],
-                          mail_to: [parentEmail],
-                          sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
-                          param: {
-                            parentName: parentName,
-                            studentName: studentName,
-                            schoolName: enquiryData.school_location?.value,
-                            academicYear: enquiryData.academic_year?.value,
-                            verificationUrl: parentRecipient.verificationUrl  // ✅ Use pre-generated short URL
-                          }
-                        },
-                        token,
-                        platform
-                      );
-
-                      this.loggerService.log(`✅ Admission email sent with short URL: ${parentRecipient.verificationUrl}`);
-                    }
-
-                    // ✅ Send SMS to all recipients using their pre-generated short URLs
-                    for (const recipient of recepientDetails) {
-                      const { buildSmsMessage, SmsTemplateType } = await import('../../config/sms-templates.config');
-                      
-                      const smsMessage = buildSmsMessage(SmsTemplateType.REFERRAL_VERIFICATION, {
-                        parentName: firstName,
-                        studentName: studentName,
-                        schoolName: enquiryData.school_location?.value || 'VIBGYOR',
-                        academicYear: enquiryData.academic_year?.value || '',
-                        verificationUrl: recipient.verificationUrl,  // ✅ Use pre-generated short URL
-                        recipientName: recipient.name.split(' ')[0] || '', 
-                      });
-
-                      await this.notificationService.sendDirectSMS(
-                        recipient.phone.toString(),
-                        smsMessage
-                      );
-                    }
-                }
-                this.loggerService.log(`Admission notification sent successfully`);
-              } catch (error) {
-                this.loggerService.error(`Error sending admission notification: ${error.message}`, error.stack);
-              }
-
-              // ================================================================
-              // STEP 2: Check if this enquiry has a referral source
               // ================================================================
               const hasReferralSource = 
                 enquiryData.other_details?.enquiry_employee_source_id ||
@@ -499,34 +421,62 @@ export class EnquiryStageUpdateService {
                 enquiryData.enquiry_school_source?.id ||
                 enquiryData.other_details?.enquiry_corporate_source_id;
 
-              if (!hasReferralSource) {
-                this.loggerService.log(`No referral source found for enquiry: ${enquiryData.enquiry_number}`);
-                // No referral source, so we're done here
-                return;
-              }
-
-              // ================================================================
-              // STEP 3: Send INITIAL referral verification notifications
-              // ================================================================
-              this.loggerService.log(`Referral source detected for enquiry: ${enquiryData.enquiry_number}`);
-              this.loggerService.log(`Sending initial referral notifications...`);
-              
-              try {
-                await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
-                  enquiryData,
-                  token,
-                  platform
-                );
-
-                // Send SMS notifications
-                await this.smsReminderService.sendInitialSms(enquiryData);
+              if (hasReferralSource) {
+                // ================================================================
+                // STEP 2: Send BOTH initial email/SMS AND schedule reminders
+                // ================================================================
+                this.loggerService.log(`Referral source detected for enquiry: ${enquiryData.enquiry_number}`);
                 
-                this.loggerService.log(`Initial referral notifications sent successfully`);
-              } catch (error) {
-                this.loggerService.error(
-                  `Error sending initial referral notifications: ${error.message}`,
-                  error.stack
-                );
+                try {
+                  // ✅ This single function call will:
+                  // 1. Generate short URLs ONCE per recipient
+                  // 2. Send initial email to parent with admission notification
+                  // 3. Send initial SMS to all recipients (parent + referrer)
+                  // 4. Create reminder records in database for automated reminders
+                  await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
+                    enquiryData,
+                    token,
+                    platform
+                  );
+                  
+                  this.loggerService.log(`✅ Initial notifications sent and reminders scheduled successfully`);
+                } catch (error) {
+                  this.loggerService.error(
+                    `Error in referral notification flow: ${error.message}`,
+                    error.stack
+                  );
+                }
+              } else {
+                // ================================================================
+                // STEP 3: No referral - send standard admission notification only
+                // ================================================================
+                this.loggerService.log(`No referral source found for enquiry: ${enquiryData.enquiry_number}`);
+                
+                try {
+                  if (parentEmail) {
+                    await this.notificationService.sendNotification(
+                      {
+                        slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+                        employee_ids: [],
+                        global_ids: [],
+                        mail_to: [parentEmail],
+                        sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
+                        param: {
+                          parentName: parentName,
+                          studentName: studentName,
+                          schoolName: enquiryData.school_location?.value,
+                          academicYear: enquiryData.academic_year?.value,
+                        }
+                      },
+                      token,
+                      platform
+                    );
+                    
+                    this.loggerService.log(`✅ Standard admission notification sent`);
+                  }
+                } catch (error) {
+                  this.loggerService.error(`Error sending admission notification: ${error.message}`, error.stack);
+                }
               }
               
             } catch (error) {
@@ -545,9 +495,6 @@ export class EnquiryStageUpdateService {
       enquiry_stages: this.enquiryStages,
     });
     return;
-  }
-  sendInitialAdmissionNotification(enquiryData: Record<string, any>) {
-    throw new Error('Method not implemented.');
   }
 
   async moveToNextStage(

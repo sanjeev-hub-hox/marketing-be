@@ -82,6 +82,7 @@ import {
 import { EnquiryService } from './enquiry.service';
 import { EEnquiryStatus } from './enquiry.type';
 import { EnquiryStageUpdateService } from './EnquiryStageUpdate.service';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Enquiry')
 @ApiBearerAuth('JWT-auth')
@@ -94,6 +95,7 @@ export class EnquiryController {
     private jobShadulerService: JobShadulerService,
     private enquiryStageUpdateService: EnquiryStageUpdateService,
     private shortUrlService: ShortUrlService,
+    private configService: ConfigService,
     @Inject('REDIS_INSTANCE') private redisInstance: RedisService,
   ) {}
 
@@ -207,10 +209,28 @@ export class EnquiryController {
   @Get('referrals/:id')
   async fetchReferralDetails(
     @Res() res: Response,
-    @Param('id')
-    id: string,
+    @Param('id') id: string,
+    @Query('type') type: string,
+    @Query('action') action: string,
   ) {
     try {
+      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
+        'https://preprod-marketing-hubbleorion.hubblehox.com';
+      
+      const fullUrl = `${baseUrl}/referral-view/?id=${id}&type=${type}&action=${action}`;
+
+      const isUrlValid = await this.shortUrlService.isUrlValid(fullUrl);
+
+      console.log('full_url___', fullUrl)
+
+      if (!isUrlValid) {
+        return {
+          status: 410, // 410 Gone
+          error: 'Link expired',
+          message: 'This referral verification link has expired. The link is only valid for 30 minutes from when it was sent. Please contact your assigned SPOC for a new verification link.',
+        };
+      }
+
       const data = await this.enquiryService.fetchReferralDetails(id);
       return this.responseService.sendResponse(
         res,
