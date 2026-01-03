@@ -109,8 +109,6 @@ import { JobShadulerService } from '../jobShaduler/jobShaduler.service';
 // import { AppRegistrationService } from '../registration/app/appRegistration.service';
 import { ReferralReminderService } from '../referralReminder/referralReminder.service';
 import { VerificationTrackerService } from '../referralReminder/verificationTracker.service';
-import { ShortUrlService } from '../shortUrl/shorturl.service';
-import { ShortUrlRepository } from '../shortUrl/shorturl.repository';
 
 @Injectable()
 export class EnquiryService {
@@ -143,8 +141,6 @@ export class EnquiryService {
     private emailService: EmailService,
     private referralReminderService: ReferralReminderService,
     private verificationTrackerService: VerificationTrackerService,
-    private shortUrl: ShortUrlService,
-    private shortUrlRepository: ShortUrlRepository,
     @Inject('REDIS_INSTANCE') private redisInstance: RedisService,
     @InjectQueue('admissionFees') private admissionFeeQueue: Queue,
   ) {
@@ -985,13 +981,6 @@ const feeData = await response.json();
 
   async fetchReferralDetails(id: string) {
     try {
-      //! checking if the link is valid or not
-      // const shortUrlDocs = await this.shortUrlRepository.findByUrl({
-        
-      // })
-
-      console.log('id___', id)
-
       const enquiryDocs = await this.enquiryRepository.getMany({
         _id: new Types.ObjectId(id),
       });

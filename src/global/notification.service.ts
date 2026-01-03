@@ -38,8 +38,6 @@ export class NotificationService {
       throw new Error('Notification slug is required');
     }
 
-    console.log('notificationPayload_____', notificationPayload);
-
     // Build the payload exactly as shown in your cURL example
     const notifypayload: any = {
       slug: notificationPayload.slug,

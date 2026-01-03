@@ -206,12 +206,12 @@ export class EnquiryController {
     }
   }
 
-  @Get('referrals/:id')
+  @Get('referrals/:id/:type/:action')
   async fetchReferralDetails(
     @Res() res: Response,
     @Param('id') id: string,
-    @Query('type') type: string,
-    @Query('action') action: string,
+    @Param('type') type: string,
+    @Param('action') action: string,
   ) {
     try {
       const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
@@ -222,13 +222,16 @@ export class EnquiryController {
       const isUrlValid = await this.shortUrlService.isUrlValid(fullUrl);
 
       console.log('full_url___', fullUrl)
+      console.log('url_reponse___', isUrlValid)
 
       if (!isUrlValid) {
-        return {
-          status: 410, // 410 Gone
-          error: 'Link expired',
-          message: 'This referral verification link has expired. The link is only valid for 30 minutes from when it was sent. Please contact your assigned SPOC for a new verification link.',
-        };
+        console.log('isInvalid')
+        return this.responseService.sendResponse(
+          res, 
+          HttpStatus.NOT_FOUND,
+          isUrlValid,
+          'This referral verification link has expired. The link is only valid for 30 minutes from when it was sent. Please contact your assigned SPOC for a new verification link.'
+        )
       }
 
       const data = await this.enquiryService.fetchReferralDetails(id);

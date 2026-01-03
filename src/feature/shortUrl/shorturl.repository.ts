@@ -16,7 +16,7 @@ export class ShortUrlRepository {
   create(data: any): Promise<ShortUrlDocument> {
     return this.ShortUrlModel.create({
       ...data,
-      expireAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+      expireAt: new Date(Date.now() + 5 * 60 * 1000), // 30 minutes
     });
   }
 
@@ -57,14 +57,5 @@ export class ShortUrlRepository {
 
   findById(id: string): Promise<ShortUrlDocument | null> {
     return this.ShortUrlModel.findById(id).exec();
-  }
-
-  // ✅ NEW: Update click count
-  async updateByHash(hash: string, update: any): Promise<ShortUrlDocument | null> {
-    return this.ShortUrlModel.findOneAndUpdate(
-      { hash },
-      { $set: update },
-      { new: true }
-    ).exec();
   }
 }

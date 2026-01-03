@@ -30,7 +30,9 @@ shortUrlSchema.index({ url: 1, expireAt: 1 });
 // ✅ TTL: delete exactly at expireAt
 shortUrlSchema.index(
   { expireAt: 1 },
-  { expireAfterSeconds: 0 }
+  {
+    expireAfterSeconds: 0
+  }
 );
 
 export type ShortUrlModel = Model<ShortUrlSchema>;
