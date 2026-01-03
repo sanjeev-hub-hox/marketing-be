@@ -206,7 +206,7 @@ export class EnquiryController {
     }
   }
 
-  @Get('referrals/:id/:type/:action')
+  @Get('referrals')
   async fetchReferralDetails(
     @Res() res: Response,
     @Param('id') id: string,

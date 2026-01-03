@@ -72,7 +72,7 @@ export const excludedRoutes = [
     method: RequestMethod.PATCH,
   },
   {
-    path: '/enquiry/referrals/:id/:type/:action',
+    path: '/enquiry/referrals',
     method: RequestMethod.GET,
   },
   {
