@@ -100,8 +100,8 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
-    path: '/enquiry/:id/move-to-next-stage',
-    method: RequestMethod.PATCH,
+    path: 'enquiry/handleReopn',
+    method: RequestMethod.POST,
   },
   {
     path: 'referral-view/:id',
@@ -113,11 +113,31 @@ export const excludedRoutes = [
   },
   //! Temporary excluded routes for vgos integration
   {
-    path: 'enquiry/pre.vgos.org/:id',
+    path: '/enquiry/pre.vgos.org/:id',
     method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/:id/move-to-next-stage',
+    method: RequestMethod.PATCH,
   },
   {
     path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/metabase/gr-report',
+    method: RequestMethod.POST,
+  },
+  {
+    path: 'enquiry/getshortUrl/:id',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/getAllReferrals',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/cc/list/',
+    method: RequestMethod.POST,
   },
 ];

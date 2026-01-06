@@ -209,9 +209,9 @@ export class EnquiryController {
   @Get('referrals')
   async fetchReferralDetails(
     @Res() res: Response,
-    @Param('id') id: string,
-    @Param('type') type: string,
-    @Param('action') action: string,
+    @Query('id') id: string,
+    @Query('type') type: string,
+    @Query('action') action: string,
   ) {
     try {
       const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
@@ -2546,5 +2546,10 @@ export class EnquiryController {
     } catch (err: Error | unknown) {
       throw err;
     }
+  }
+
+  @Post('metabase/gr-report')
+  async getMetabaseGrReport() {
+    return await this.enquiryService.getMetabaseGrStudent();
   }
 }

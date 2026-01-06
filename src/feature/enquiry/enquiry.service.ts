@@ -662,11 +662,12 @@ const feeData = await response.json();
             enquiry_sub_source: 1,
             enquiry_school_source: 1,
             enquiry_corporate_source: 1,
+            enquiry_parent_source: 1,
             board: 1,
             assigned_to: 1,
             enrolment_number: 1,
             createdAt: 1,
-            admissionDetails: 1  // ADDED: Include this for debugging
+            admissionDetails: 1
           }
         },
         { $sort: { createdAt: -1 } },
@@ -746,13 +747,18 @@ const feeData = await response.json();
         const enquirySource = enq.enquiry_source?.value || null;
         const enquirySubSource = enq.enquiry_sub_source?.value || null;
 
+        console.log('enquiry_Data___', enq)
+
         const od = enq?.other_details || {};
         
         let sourceName = '';
         let referrerPhone = null;
         let referralPhone = parentNumber();
-        
-        if (od.enquiry_employee_source_id) {
+        if (enq.enquiry_parent_source) {
+          console.log('Parent referral view')
+          sourceName = enq.enquiry_parent_source.name || 'Parent';
+          referrerPhone = enq.enquiry_parent_source.value;
+        } else if (od.enquiry_employee_source_id) {
           sourceName = od.enquiry_employee_source_name || 'Employee';
           referrerPhone = od.enquiry_employee_source_number;
         } else if (enq.enquiry_school_source?.id) {
@@ -774,6 +780,33 @@ const feeData = await response.json();
         }
 
         const referralStatus = this.calculateReferralStatus(enq, parentNumber());
+
+        console.log('sent_data___', {
+          enquiryid: enquiryid,
+          student_name: studentName,
+          enquiry_number: enq.enquiry_number,
+          enrollment_number: enrollmentNumber,
+          parent_name: parentName(),
+          parent_number: parentNumber(),
+          academic_year: academicYear,
+          school: school,
+          grade: grade,
+          board: board,
+          leadOwner: assignedTo,
+          enquirySource: enquirySource,
+          enquirySubSource: enquirySubSource,
+          sourceName: sourceName,
+          status: referralStatus,
+          referrerPhone: referrerPhone,
+          referralPhone: referralPhone,
+          referrerVerified: od.referrer?.verified || false,
+          referralVerified: od.referral?.verified || false,
+          manuallyVerified: od.manuallyVerifiedData?.manuallyVerified || false,
+          manuallyRejected: od.manuallyRejectedData?.manuallyRejected || false,
+          referrerRejectionReason: od.manuallyRejectedData?.manualRejectionReason || null,
+          manuallyVerifiedData: od.manuallyVerifiedData || null,
+          manuallyRejectedData: od.manuallyRejectedData || null,
+        })
 
         return {
           enquiryid: enquiryid,
@@ -10691,6 +10724,173 @@ const feeData = await response.json();
       }
 
       // 6. Get Signed URL
+      const bucketName = this.configService.get<string>('BUCKET_NAME');
+      const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+
+      return { file_url: signedUrl, fileName: uploadedFileName };
+
+    } catch (error) {
+      console.error('Metabase Integration Error:', error.message);
+      throw new HttpException(
+        error.message || 'An error occurred interaction with Metabase',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getMetabaseGrStudent(filters?: {
+    school?: string;
+    board?: string;
+    course?: string;
+    grade?: string[];
+    stream?: string;
+    year?: string;
+  }) {
+    try {
+      const METABASE_URL = 'https://metabase-prod.ampersandgroup.in';
+      const username = process.env.METABASE_USERNAME || 'AmolAhirrao@winjit.com';
+      const password = process.env.METABASE_PASSWORD || '0T707i0?QpmtH3';
+
+      if (!username || !password) {
+        throw new Error('Metabase credentials not configured in environment variables');
+      }
+
+      // 1. Login to get session token
+      const loginResponse = await fetch(`${METABASE_URL}/api/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!loginResponse.ok) {
+        throw new HttpException('Failed to authenticate with Metabase', HttpStatus.UNAUTHORIZED);
+      }
+
+      const loginData: any = await loginResponse.json();
+      const sessionToken = loginData.id;
+
+      // 2. Fetch question results with filters
+      const questionId = 93836;
+      
+      // Build parameters object for filters
+      const parameters = [];
+      
+      if (filters?.school) {
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'school']], 
+          value: filters.school 
+        });
+      }
+      
+      if (filters?.board) {
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'board']], 
+          value: filters.board 
+        });
+      }
+      
+      if (filters?.course) {
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'course']], 
+          value: filters.course 
+        });
+      }
+      
+      if (filters?.grade) {
+        // Handle both single grade (string) and multiple grades (array)
+        const gradeValue = Array.isArray(filters.grade) ? filters.grade : [filters.grade];
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'grade']], 
+          value: gradeValue 
+        });
+      }
+      
+      if (filters?.stream) {
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'stream']], 
+          value: filters.stream 
+        });
+      }
+      
+      if (filters?.year) {
+        parameters.push({ 
+          type: 'category', 
+          target: ['dimension', ['template-tag', 'year']], 
+          value: filters.year 
+        });
+      }
+
+      const queryResponse = await fetch(`${METABASE_URL}/api/card/${questionId}/query/json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Metabase-Session': sessionToken,
+        },
+        body: JSON.stringify({ parameters }),
+      });
+
+      if (!queryResponse.ok) {
+        throw new HttpException('Failed to fetch data from Metabase', HttpStatus.BAD_GATEWAY);
+      }
+
+      const queryData: any = await queryResponse.json();
+
+      // Define the correct column order
+      const columnOrder = [
+        'GR No',
+        'Student Full Name',
+        'Father Full Name',
+        'Mother Full Name',
+        'Caste',
+        'Place of Birth',
+        'Nationality',
+        'Date of Birth',
+        'Last School Attended',
+        'Joining Date',
+        'Student Grade',
+        'General Conduct',
+        'Date of Leaving',
+        'Grade From Which Left',
+        'Reason for Leaving',
+        'Created Date',
+        'Academic Year'
+      ];
+
+      // Process data with correct column order
+      const rows = queryData.map((obj) => {
+        return columnOrder.map(columnName => obj[columnName] || '');
+      });
+
+      const excelData = [columnOrder, ...rows];
+
+      const buffer = xlsx.build([{ name: 'GR Report', data: excelData, options: {} }]);
+
+      // Create File
+      const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
+      const filename = `GR_Report_${timestamp}.xlsx`;
+
+      const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
+        buffer,
+        filename,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+
+      // Upload File
+      await this.setFileUploadStorage();
+      const uploadedFileName = await this.storageService.uploadFile(file, filename);
+
+      if (!uploadedFileName) {
+        throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+
+      // Get Signed URL
       const bucketName = this.configService.get<string>('BUCKET_NAME');
       const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
 

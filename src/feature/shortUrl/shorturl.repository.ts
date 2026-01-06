@@ -16,7 +16,7 @@ export class ShortUrlRepository {
   create(data: any): Promise<ShortUrlDocument> {
     return this.ShortUrlModel.create({
       ...data,
-      expireAt: new Date(Date.now() + 5 * 60 * 1000), // 30 minutes
+      expireAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
     });
   }
 
@@ -32,9 +32,11 @@ export class ShortUrlRepository {
   findByUrlAndNotExpired(url: string): Promise<ShortUrlDocument | null> {
     return this.ShortUrlModel.findOne({
       url,
-      expireAt: { $gt: new Date() }
-    })
-    .exec();
+      $or: [
+        { expireAt: { $gt: new Date() } },  
+        { expireAt: { $exists: false } }     
+      ]
+    }).exec();
   }
 
   // ✅ NEW: Check if URL exists and is not expired

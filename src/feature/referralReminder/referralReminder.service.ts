@@ -274,8 +274,33 @@ export class ReferralReminderService {
   private async getReferrerRecipient(enquiryData: any, baseUrl: string): Promise<RecipientInfo | null> {
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
+    // check for parent referral
+    if(enquiryData?.enquiry_parent_source){
+      const email = enquiryData.enquiry_parent_source.parent_email
+      const name = enquiryData.enquiry_parent_source.name 
+      const phone = enquiryData.enquiry_parent_source.value
+
+      if(email && phone){
+        this.loggerService.log(`[REFERRAL] Found parent referrer: ${email}`);
+
+        // ✅ Create short URL for employee referrer
+        const employeeUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: employeeUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
+        return {
+          type: ReminderRecipientType.REFERRER,
+          email,
+          phone: String(phone),
+          name,
+          verificationUrl: shortUrl, 
+          referredName: studentName,
+        };
+      }
+    }
+
     // Check for Employee Referral
-    if (enquiryData.other_details?.enquiry_employee_source_id) {
+    if (enquiryData?.enquiry_employee_source_id) {
       const email = enquiryData.other_details.enquiry_employee_source_value;
       const phone = enquiryData.other_details.enquiry_employee_source_number;
       const name = enquiryData.other_details.enquiry_employee_source_name || 'Employee';
