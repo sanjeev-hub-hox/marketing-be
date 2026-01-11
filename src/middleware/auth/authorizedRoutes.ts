@@ -76,6 +76,14 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
+    path: '/enquiry/getEnrollmentAndParentNumber/:search',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/:id',
+    method: RequestMethod.GET,
+  },
+  {
     path: '/enquiry/referrals/:id',
     method: RequestMethod.POST,
   },
@@ -96,11 +104,27 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
+    path: '/enquiry/cc/list',
+    method: RequestMethod.POST,
+  },
+  {
+    path: '/enquiry/:id/similar-enquiries',
+    method: RequestMethod.GET,
+  },
+  {
+    path: '/enquiry/ay/admission-enquiry-report',
+    method: RequestMethod.GET,
+  },
+  {
     path: '/enquiry/request-report/:reportType',
     method: RequestMethod.GET,
   },
   {
     path: 'enquiry/handleReopn',
+    method: RequestMethod.POST,
+  },
+  {
+    path: '/enquiry/handleDuplicate',
     method: RequestMethod.POST,
   },
   {

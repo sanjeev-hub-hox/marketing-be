@@ -71,6 +71,7 @@ import {
   UpdateParentDetailsRequestDto,
 } from './dto/apiResponse.dto';
 import { GetMergeDto, PostMergeDto } from './dto/mergeEnquiry.dto';
+import { GrReportFilterDto } from './dto/gr-report-filter.dto';
 import {
   CheckFeePayload,
   GetValidParent,
@@ -842,6 +843,34 @@ export class EnquiryController {
     description: 'Invalid data validation error response',
     type: RequestValidationError,
   })
+  @Post('handleDuplicate')
+  async handleDuplicate(
+    @Res() res: Response,
+    @Body() reqBody:any
+  ) {
+    try {
+
+      const data = await this.enquiryService.getDuplicateEnquiries(reqBody);
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        data,
+        'handleReopn',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
+
+  @ApiOkResponse({
+    status: HttpStatus.OK,
+    description: 'Success response',
+  })
+  @ApiBadRequestResponse({
+    status: HttpStatus.OK,
+    description: 'Invalid data validation error response',
+    type: RequestValidationError,
+  })
   @Patch(':enquiryId/move-to-next-stage')
   async moveEnquiryToNextStage(
     @Req() req: Request,
@@ -972,24 +1001,24 @@ export class EnquiryController {
       this.loggerService.log(`Post cc enquiries list api called`);
       const filtersArray = filter;
       const createdByDetails = extractCreatedByDetailsFromBody(req);
-      const { user_id } = createdByDetails;
+      // const { user_id } = createdByDetails;
 
-      const cacheKey = `cc_list:${user_id}:${page}:${size}:${JSON.stringify(filtersArray)}`;
+      // const cacheKey = `cc_list:${user_id}:${page}:${size}:${JSON.stringify(filtersArray)}`;
 
-      const cachedData = await this.redisInstance?.getData(cacheKey);
-      if (cachedData) {
-        this.loggerService.log(`Cache hit for key: ${cacheKey}`);
-        return this.responseService.sendResponse(
-          res,
-          HttpStatus.OK,
-          {
-            ...cachedData,
-            _fromCache: true,
-            _cachedAt: new Date().toISOString(),
-          },
-          'Enquiries found (from cache)',
-        );
-      }
+      // const cachedData = await this.redisInstance?.getData(cacheKey);
+      // if (cachedData) {
+      //   this.loggerService.log(`Cache hit for key: ${cacheKey}`);
+      //   return this.responseService.sendResponse(
+      //     res,
+      //     HttpStatus.OK,
+      //     {
+      //       ...cachedData,
+      //       _fromCache: true,
+      //       _cachedAt: new Date().toISOString(),
+      //     },
+      //     'Enquiries found (from cache)',
+      //   );
+      // }
 
       const enquiryDetails = await this.enquiryService.getEnquiryDetailsCC(
         req,
@@ -998,7 +1027,7 @@ export class EnquiryController {
         filtersArray.filters,
       );
 
-      await this.redisInstance?.setData(cacheKey, enquiryDetails, 300);
+      // await this.redisInstance?.setData(cacheKey, enquiryDetails, 300);
 
       return this.responseService.sendResponse(
         res,
@@ -2549,7 +2578,21 @@ export class EnquiryController {
   }
 
   @Post('metabase/gr-report')
-  async getMetabaseGrReport() {
-    return await this.enquiryService.getMetabaseGrStudent();
+  async getMetabaseGrReport(@Body() filterDto: GrReportFilterDto, @Res() res: Response) {
+    try {
+      const result = await this.enquiryService.getMetabaseGrStudent(filterDto);
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'GR Report from Metabase'
+      )
+    } catch (error) {
+      return this.responseService.errorResponse(
+        res,
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message || 'Failed to fetch data from metabase'
+      )
+    }
   }
 }

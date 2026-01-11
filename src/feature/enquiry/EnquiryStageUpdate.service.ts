@@ -413,44 +413,231 @@ export class EnquiryStageUpdateService {
               const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
               // ================================================================
-              // STEP 1: Send general admission notification (NOT referral-related)
+              // Check if this enquiry has a referral source
               // ================================================================
-              const hasReferralSource = 
-                enquiryData.other_details?.enquiry_employee_source_id ||
+              const hasReferralSource = enquiryData.enquiry_parent_source ||
+                enquiryData.enquiry_employee_source || 
+                enquiryData.enquiry_corporate_source ||
+                enquiryData.enquiry_school_source ||
+                enquiryData.other_details?.enquiry_employee_source_id || 
                 enquiryData.other_details?.enquiry_parent_source_id ||
                 enquiryData.enquiry_school_source?.id ||
                 enquiryData.other_details?.enquiry_corporate_source_id;
 
               if (hasReferralSource) {
-                // ================================================================
-                // STEP 2: Send BOTH initial email/SMS AND schedule reminders
-                // ================================================================
-                this.loggerService.log(`Referral source detected for enquiry: ${enquiryData.enquiry_number}`);
+                this.loggerService.log(`🔍 Referral source detected for enquiry: ${enquiryData.enquiry_number}`);
                 
                 try {
-                  // ✅ This single function call will:
-                  // 1. Generate short URLs ONCE per recipient
-                  // 2. Send initial email to parent with admission notification
-                  // 3. Send initial SMS to all recipients (parent + referrer)
-                  // 4. Create reminder records in database for automated reminders
+                  // ================================================================
+                  // Extract referral contact information
+                  // ================================================================
+                  let referralEmail: string | null = null;
+                  let referralPhone: string | null = null;
+                  let referralName: string | null = null;
+                  let referralType: string | null = null;
+
+                  this.loggerService.log(`🔍 Checking for referral sources in enquiry: ${enquiryData.enquiry_number}`);
+                  
+                  // ✅ PRIORITY 1: Check Parent Referral (enquiry_parent_source at ROOT)
+                  if (enquiryData.enquiry_parent_source) {
+                    referralEmail = enquiryData.enquiry_parent_source.parent_email;
+                    referralPhone = enquiryData.enquiry_parent_source.value;
+                    referralName = enquiryData.enquiry_parent_source.name;
+                    referralType = 'Parent Referral';
+                    
+                    this.loggerService.log(
+                      `✅ Parent referral found:\n` +
+                      `   Name: ${referralName}\n` +
+                      `   Email: ${referralEmail}\n` +
+                      `   Phone: ${referralPhone}`
+                    );
+                  }
+                  
+                  // ✅ PRIORITY 2: Check Employee Referral (enquiry_employee_source at ROOT)
+                  else if (enquiryData.enquiry_employee_source) {
+                    referralEmail = enquiryData.enquiry_employee_source.value;
+                    referralPhone = enquiryData.enquiry_employee_source.number;
+                    referralName = enquiryData.enquiry_employee_source.name;
+                    referralType = 'Employee Referral';
+                    
+                    this.loggerService.log(
+                      `✅ Employee referral found at ROOT level:\n` +
+                      `   Name: ${referralName}\n` +
+                      `   Email: ${referralEmail}\n` +
+                      `   Phone: ${referralPhone}`
+                    );
+                  }
+                  
+                  // ✅ PRIORITY 3: Check Pre-School Referral (enquiry_school_source at ROOT)
+                  else if (enquiryData.enquiry_school_source?.id) {
+                    referralEmail = enquiryData.enquiry_school_source.spoc_email;
+                    referralPhone = enquiryData.enquiry_school_source.spoc_mobile_no;
+                    referralName = enquiryData.enquiry_school_source.value;
+                    referralType = 'Pre-School Referral';
+                    
+                    this.loggerService.log(
+                      `✅ Pre-School referral found:\n` +
+                      `   Name: ${referralName}\n` +
+                      `   Email: ${referralEmail}\n` +
+                      `   Phone: ${referralPhone}`
+                    );
+                  }
+                  
+                  // ✅ PRIORITY 4: Check Corporate Referral (enquiry_corporate_source at ROOT)
+                  else if (enquiryData.enquiry_corporate_source?.id) {
+                    referralEmail = enquiryData.enquiry_corporate_source.spoc_email;
+                    referralPhone = enquiryData.enquiry_corporate_source.spoc_mobile_no;
+                    referralName = enquiryData.enquiry_corporate_source.value;
+                    referralType = 'Corporate Referral';
+                    
+                    this.loggerService.log(
+                      `✅ Corporate referral found:\n` +
+                      `   Name: ${referralName}\n` +
+                      `   Email: ${referralEmail}\n` +
+                      `   Phone: ${referralPhone}`
+                    );
+                  }
+                  
+                  // ✅ FALLBACK: Check other_details for any referral type
+                  else if (enquiryData.other_details) {
+                    const od = enquiryData.other_details;
+                    
+                    // Employee from other_details
+                    if (od.enquiry_employee_source_id) {
+                      referralEmail = od.enquiry_employee_source_value;
+                      referralPhone = od.enquiry_employee_source_number;
+                      referralName = od.enquiry_employee_source_name;
+                      referralType = 'Employee Referral (other_details)';
+                    }
+                    // Pre-School from other_details
+                    else if (od.enquiry_school_source_id) {
+                      referralEmail = od.enquiry_school_source_email;
+                      referralPhone = od.enquiry_school_source_number;
+                      referralName = od.enquiry_school_source_value;
+                      referralType = 'Pre-School Referral (other_details)';
+                    }
+                    // Corporate from other_details
+                    else if (od.enquiry_corporate_source_id) {
+                      referralEmail = od.enquiry_corporate_source_email;
+                      referralPhone = od.enquiry_corporate_source_number;
+                      referralName = od.enquiry_corporate_source_value;
+                      referralType = 'Corporate Referral (other_details)';
+                    }
+                    
+                    if (referralEmail || referralPhone) {
+                      this.loggerService.log(
+                        `✅ Referral found in other_details:\n` +
+                        `   Type: ${referralType}\n` +
+                        `   Name: ${referralName}\n` +
+                        `   Email: ${referralEmail}\n` +
+                        `   Phone: ${referralPhone}`
+                      );
+                    }
+                  }
+                  
+                  // ================================================================
+                  // STEP 1: Send admission notification to the NEW parent
+                  // ================================================================
+                  if (parentEmail) {
+                    try {
+                      await this.notificationService.sendNotification(
+                        {
+                          slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+                          employee_ids: [],
+                          global_ids: [],
+                          mail_to: [parentEmail],
+                          sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
+                          param: {
+                            parentName: parentName,
+                            studentName: studentName,
+                            schoolName: enquiryData.school_location?.value,
+                            academicYear: enquiryData.academic_year?.value,
+                          }
+                        },
+                        token,
+                        platform
+                      );
+                      
+                      this.loggerService.log(`✅ Admission notification sent to NEW parent: ${parentEmail}`);
+                    } catch (notifError) {
+                      this.loggerService.error(
+                        `❌ Error sending admission notification to NEW parent: ${notifError.message}`,
+                        notifError.stack
+                      );
+                    }
+                  }
+                  
+                  // ================================================================
+                  // STEP 2: Send notification to REFERRER (if exists)
+                  // ================================================================
+                  if (referralEmail || referralPhone) {
+                    try {
+                      const referralNotificationPayload = {
+                        slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
+                        employee_ids: [],
+                        global_ids: [],
+                        mail_to: referralEmail ? [referralEmail] : [],
+                        sms_to: referralPhone ? [referralPhone.toString().slice(-10)] : [],
+                        param: {
+                          parentName: referralName || 'Valued Referrer',
+                          referrerName: referralName || 'Valued Referrer',
+                          studentName: studentName,
+                          newParentName: parentName,
+                          schoolName: enquiryData.school_location?.value,
+                          academicYear: enquiryData.academic_year?.value,
+                        }
+                      };
+                      
+                      this.loggerService.log(
+                        `📧 Sending ${referralType} notification with payload: ${JSON.stringify(referralNotificationPayload)}`
+                      );
+                      
+                      await this.notificationService.sendNotification(
+                        referralNotificationPayload,
+                        token,
+                        platform
+                      );
+                      
+                      this.loggerService.log(
+                        `✅ ${referralType} notification sent successfully to:\n` +
+                        `   Email: ${referralEmail || 'N/A'}\n` +
+                        `   Phone: ${referralPhone || 'N/A'}`
+                      );
+                    } catch (notifError) {
+                      this.loggerService.error(
+                        `❌ Error sending ${referralType} notification: ${notifError.message}`,
+                        notifError.stack
+                      );
+                    }
+                  } else {
+                    this.loggerService.log(
+                      `ℹ️ No referral source detected for enquiry: ${enquiryData.enquiry_number}\n` +
+                      `   This is a direct admission (no referral)`
+                    );
+                  }
+                  
+                  // ================================================================
+                  // STEP 3: Call referral reminder service (handles ALL referral types)
+                  // ================================================================
                   await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
                     enquiryData,
                     token,
                     platform
                   );
                   
-                  this.loggerService.log(`✅ Initial notifications sent and reminders scheduled successfully`);
+                  this.loggerService.log(`✅ Referral reminder service completed`);
+                  
                 } catch (error) {
                   this.loggerService.error(
-                    `Error in referral notification flow: ${error.message}`,
+                    `❌ Error in referral notification flow: ${error.message}`,
                     error.stack
                   );
                 }
               } else {
                 // ================================================================
-                // STEP 3: No referral - send standard admission notification only
+                // No referral - send standard admission notification only
                 // ================================================================
-                this.loggerService.log(`No referral source found for enquiry: ${enquiryData.enquiry_number}`);
+                this.loggerService.log(`ℹ️ No referral source found for enquiry: ${enquiryData.enquiry_number}`);
                 
                 try {
                   if (parentEmail) {

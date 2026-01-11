@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { LoggerService } from '../../utils';
 import { NotificationService } from '../../global/notification.service';
-// import { KafkaProducerService } from '../../kafka/kafka-producer.service';
 import { VerificationTrackerService } from './verificationTracker.service';
 import { referralReminderConfig } from '../../config/referral-reminder.config';
 import { 
@@ -20,7 +19,6 @@ import { ShortUrlService } from '../shortUrl/shorturl.service';
 @Injectable()
 export class ReferralReminderService {
   constructor(
-    // private readonly kafkaProducer: KafkaProducerService,
     private readonly notificationService: NotificationService,
     private readonly configService: ConfigService,
     private readonly loggerService: LoggerService,
@@ -41,7 +39,8 @@ export class ReferralReminderService {
     platform: string,
   ): Promise<void> {
     try {
-      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 'https://preprod-marketing-hubbleorion.hubblehox.com';
+      const baseUrl = this.configService.get<string>('MARKETING_BASE_URL') || 
+        'https://preprod-marketing-hubbleorion.hubblehox.com';
       
       // ✅ Get all recipients with pre-generated short URLs (generated ONCE)
       const recipients = await this.getAllRecipients(enquiryData, baseUrl);
@@ -74,7 +73,7 @@ export class ReferralReminderService {
                 studentName: studentName,
                 schoolName: enquiryData.school_location?.value,
                 academicYear: enquiryData.academic_year?.value,
-                verificationUrl: parentRecipient.verificationUrl  // ✅ Use pre-generated short URL
+                verificationUrl: parentRecipient.verificationUrl
               }
             },
             token,
@@ -100,7 +99,7 @@ export class ReferralReminderService {
             studentName: studentName,
             schoolName: enquiryData.school_location?.value || 'VIBGYOR',
             academicYear: enquiryData.academic_year?.value || '',
-            verificationUrl: recipient.verificationUrl,  // ✅ Use pre-generated short URL
+            verificationUrl: recipient.verificationUrl,
             recipientName: recipient.name.split(' ')[0] || '',
           });
 
@@ -122,17 +121,10 @@ export class ReferralReminderService {
       const hoursInterval = 24 / config.frequency;
       const startDate = new Date();
 
-      // 🔥 CREATE REMINDER RECORDS IN DATABASE
       for (const recipient of recipients) {
-        // this.loggerService.log(
-        //   `[REFERRAL] 💾 Creating reminder record for ${recipient.type}: ${recipient.email}`
-        // );
-
-        // Calculate first reminder schedule (after initial notification)
         const firstReminderDate = this.calculateNextSchedule(startDate, hoursInterval);
 
         try {
-          // ✅ THIS IS WHERE WE STORE IN DATABASE
           await this.reminderRepository.create({
             enquiry_id: new Types.ObjectId(enquiryData._id),
             enquiry_number: enquiryData.enquiry_number,
@@ -146,7 +138,7 @@ export class ReferralReminderService {
               referred_name: recipient.referredName || '',
             },
             max_reminders: maxReminders,
-            reminder_count: 0, // Initial count is 0
+            reminder_count: 0,
             status: ReminderStatus.PENDING,
             is_verified: false,
             next_scheduled_at: firstReminderDate,
@@ -179,11 +171,6 @@ export class ReferralReminderService {
         verifiedAt: new Date().toISOString(),
       };
 
-      // await this.kafkaProducer.sendMessage(
-      //   referralReminderConfig.verificationTopic,
-      //   verificationMessage
-      // );
-
       this.loggerService.log(
         `[REFERRAL] ✅ Verification recorded for enquiry ${enquiryId} by ${recipientType}`,
       );
@@ -209,7 +196,6 @@ export class ReferralReminderService {
     if (parentDetails?.email && parentDetails?.mobile) {
       const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referral`;
 
-      // Create short URL for parent
       let createUrl = await this.urlService.createUrl({url: parentUrl});
       let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
       
@@ -230,7 +216,6 @@ export class ReferralReminderService {
 
     return recipients;
   }
-
 
   private async sendNotification(
     recipient: RecipientInfo,
@@ -274,18 +259,27 @@ export class ReferralReminderService {
   private async getReferrerRecipient(enquiryData: any, baseUrl: string): Promise<RecipientInfo | null> {
     const studentName = `${enquiryData.student_details.first_name} ${enquiryData.student_details.last_name}`;
 
-    // check for parent referral
-    if(enquiryData?.enquiry_parent_source){
-      const email = enquiryData.enquiry_parent_source.parent_email
-      const name = enquiryData.enquiry_parent_source.name 
-      const phone = enquiryData.enquiry_parent_source.value
+    // 🔍 DEBUG: Log all referral-related fields
+    this.loggerService.log(`[REFERRAL DEBUG] Checking referral sources for enquiry ${enquiryData._id}:`);
+    this.loggerService.log(`  - enquiry_parent_source: ${!!enquiryData.enquiry_parent_source}`);
+    this.loggerService.log(`  - enquiry_employee_source: ${!!enquiryData.enquiry_employee_source}`);
+    this.loggerService.log(`  - enquiry_school_source: ${!!enquiryData.enquiry_school_source}`);
+    this.loggerService.log(`  - enquiry_corporate_source: ${!!enquiryData.enquiry_corporate_source}`);
+    this.loggerService.log(`  - other_details.enquiry_employee_source_id: ${enquiryData.other_details?.enquiry_employee_source_id}`);
+    this.loggerService.log(`  - other_details.enquiry_school_source_id: ${enquiryData.other_details?.enquiry_school_source_id}`);
+    this.loggerService.log(`  - other_details.enquiry_corporate_source_id: ${enquiryData.other_details?.enquiry_corporate_source_id}`);
 
-      if(email && phone){
-        this.loggerService.log(`[REFERRAL] Found parent referrer: ${email}`);
+    // ✅ 1. Check for Parent Referral
+    if (enquiryData?.enquiry_parent_source) {
+      const email = enquiryData.enquiry_parent_source.parent_email;
+      const name = enquiryData.enquiry_parent_source.name;
+      const phone = enquiryData.enquiry_parent_source.value;
 
-        // ✅ Create short URL for employee referrer
-        const employeeUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`;
-        let createUrl = await this.urlService.createUrl({url: employeeUrl});
+      if (email && phone) {
+        this.loggerService.log(`[REFERRAL] ✅ Found parent referrer: ${email}`);
+
+        const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: parentUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
@@ -299,16 +293,17 @@ export class ReferralReminderService {
       }
     }
 
-    // Check for Employee Referral
-    if (enquiryData?.enquiry_employee_source_id) {
-      const email = enquiryData.other_details.enquiry_employee_source_value;
-      const phone = enquiryData.other_details.enquiry_employee_source_number;
-      const name = enquiryData.other_details.enquiry_employee_source_name || 'Employee';
+    // ✅ 2. Check for Employee Referral (PRIORITY: Root level enquiry_employee_source)
+    if (enquiryData?.enquiry_employee_source) {
+      this.loggerService.log(`[REFERRAL DEBUG] enquiry_employee_source data: ${JSON.stringify(enquiryData.enquiry_employee_source)}`);
+      
+      const email = enquiryData.enquiry_employee_source.value;
+      const phone = enquiryData.enquiry_employee_source.number;
+      const name = enquiryData.enquiry_employee_source.name || 'Employee';
       
       if (email && phone) {
-        this.loggerService.log(`[REFERRAL] Found employee referrer: ${email}`);
+        this.loggerService.log(`[REFERRAL] ✅ Found employee referrer at ROOT level: ${email}`);
         
-        // ✅ Create short URL for employee referrer
         const employeeUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`;
         let createUrl = await this.urlService.createUrl({url: employeeUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
@@ -321,6 +316,36 @@ export class ReferralReminderService {
           verificationUrl: shortUrl, 
           referredName: studentName,
         };
+      } else {
+        this.loggerService.warn(`[REFERRAL] ⚠️ enquiry_employee_source exists but missing email/phone. Email: ${email}, Phone: ${phone}`);
+      }
+    }
+
+    // ✅ 3. Check for Employee Referral (FALLBACK: other_details)
+    if (enquiryData?.other_details?.enquiry_employee_source_id) {
+      this.loggerService.log(`[REFERRAL DEBUG] Checking other_details for employee source...`);
+      
+      const email = enquiryData.other_details.enquiry_employee_source_value;
+      const phone = enquiryData.other_details.enquiry_employee_source_number;
+      const name = enquiryData.other_details.enquiry_employee_source_name || 'Employee';
+      
+      if (email && phone) {
+        this.loggerService.log(`[REFERRAL] ✅ Found employee referrer in other_details: ${email}`);
+        
+        const employeeUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=employee&action=referrer`;
+        let createUrl = await this.urlService.createUrl({url: employeeUrl});
+        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+        
+        return {
+          type: ReminderRecipientType.REFERRER,
+          email,
+          phone: String(phone),
+          name,
+          verificationUrl: shortUrl, 
+          referredName: studentName,
+        };
+      } else {
+        this.loggerService.warn(`[REFERRAL] ⚠️ other_details.enquiry_employee_source_id exists but missing email/phone. Email: ${email}, Phone: ${phone}`);
       }
     }
 
@@ -337,9 +362,9 @@ export class ReferralReminderService {
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
           verificationUrl: shortUrl, 
           referredName: studentName,
@@ -347,82 +372,79 @@ export class ReferralReminderService {
       }
     }
 
-    // Also check in other_details for preschool (fallback)
+    // ✅ 4. Check for Pre-School Referral (from other_details - fallback)
     if (enquiryData.other_details?.enquiry_school_source_id) {
       const email = enquiryData.other_details.enquiry_school_source_email;
       const phone = enquiryData.other_details.enquiry_school_source_number;
       const name = enquiryData.other_details.enquiry_school_source_value || 'Preschool';
       
       if (email && phone) {
-        this.loggerService.log(`[REFERRAL] Found preschool referrer in other_details: ${email}`);
+        this.loggerService.log(`[REFERRAL] ✅ Found preschool referrer in other_details: ${email}`);
         
-        // ✅ Create short URL
         const schoolUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringschool&action=referrer`;
         let createUrl = await this.urlService.createUrl({url: schoolUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: shortUrl, // ✅ Use short URL
+          verificationUrl: shortUrl,
           referredName: studentName,
         };
       }
     }
 
-    // Check for Corporate Referral
+    // ✅ 5. Check for Corporate Referral (from enquiry_corporate_source)
     if (enquiryData.enquiry_corporate_source?.id) {
       const email = enquiryData.enquiry_corporate_source.spoc_email;
       const phone = enquiryData.enquiry_corporate_source.spoc_mobile_no;
       const name = enquiryData.enquiry_corporate_source.value || 'Corporate';
       
       if (email && phone) {
-        this.loggerService.log(`[REFERRAL] Found corporate referrer: ${email}`);
+        this.loggerService.log(`[REFERRAL] ✅ Found corporate referrer: ${email}`);
         
-        // ✅ Create short URL for corporate referrer
         const corporateUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`;
         let createUrl = await this.urlService.createUrl({url: corporateUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: shortUrl, // ✅ Use short URL
+          verificationUrl: shortUrl,
           referredName: studentName,
         };
       }
     }
 
-    // Also check in other_details for corporate (fallback)
+    // ✅ 6. Check for Corporate Referral (from other_details - fallback)
     if (enquiryData.other_details?.enquiry_corporate_source_id) {
       const email = enquiryData.other_details.enquiry_corporate_source_email;
       const phone = enquiryData.other_details.enquiry_corporate_source_number;
       const name = enquiryData.other_details.enquiry_corporate_source_value || 'Corporate';
       
       if (email && phone) {
-        this.loggerService.log(`[REFERRAL] Found corporate referrer in other_details: ${email}`);
+        this.loggerService.log(`[REFERRAL] ✅ Found corporate referrer in other_details: ${email}`);
         
-        // ✅ Create short URL
         const corporateUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`;
         let createUrl = await this.urlService.createUrl({url: corporateUrl});
         let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
         
         return {
-          type: ReminderRecipientType.REFERRER, // ✅ Use enum
+          type: ReminderRecipientType.REFERRER,
           email,
-          phone: String(phone), // ✅ Convert to string
+          phone: String(phone),
           name,
-          verificationUrl: `${baseUrl}/referral-view/?id=${enquiryData._id}&type=referringcorporate&action=referrer`,
+          verificationUrl: shortUrl,
           referredName: studentName,
         };
       }
     }
 
-    this.loggerService.log(`[REFERRAL] No referrer found for enquiry ${enquiryData._id}`);
+    this.loggerService.log(`[REFERRAL] ⚠️ No referrer found for enquiry ${enquiryData._id}`);
     return null;
   }
 
@@ -445,14 +467,12 @@ export class ReferralReminderService {
 
   async markAsVerified(enquiryId: string, verifiedBy: 'parent' | 'referrer'): Promise<void> {
     try {
-      // Find all pending reminders for this enquiry and type
       const reminders = await this.reminderRepository.find({
         enquiry_id: new Types.ObjectId(enquiryId),
         recipient_type: verifiedBy,
         status: ReminderStatus.PENDING,
       });
 
-      // Mark all as verified and completed
       for (const reminder of reminders) {
         await this.reminderRepository.updateById(reminder._id as Types.ObjectId, {
           is_verified: true,
@@ -461,9 +481,9 @@ export class ReferralReminderService {
         });
       }
 
-      console.log(`[REMINDER] Marked ${reminders.length} reminders as verified for enquiry ${enquiryId}`);
+      this.loggerService.log(`[REMINDER] ✅ Marked ${reminders.length} reminders as verified for enquiry ${enquiryId}`);
     } catch (error) {
-      console.error(`[REMINDER] Error marking reminders as verified:`, error);
+      this.loggerService.error(`[REMINDER] ❌ Error marking reminders as verified:`, error);
       throw error;
     }
   }
@@ -482,9 +502,9 @@ export class ReferralReminderService {
         });
       }
 
-      console.log(`[REMINDER] Stopped ${reminders.length} reminders for enquiry ${enquiryId}`);
+      this.loggerService.log(`[REMINDER] ✅ Stopped ${reminders.length} reminders for enquiry ${enquiryId}`);
     } catch (error) {
-      console.error(`[REMINDER] Error stopping reminders:`, error);
+      this.loggerService.error(`[REMINDER] ❌ Error stopping reminders:`, error);
       throw error;
     }
   }

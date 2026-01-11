@@ -69,12 +69,19 @@ export class WorkflowService {
     stage_name: string,
     req: Request,
   ) {
+    console.log('inside sendWorkflowRequest');
+    
     const stages = enquiry.enquiry_stages.find(
       (data) => data.stage_name.toLowerCase() === stage_name.toLowerCase(),
     );
+
+    console.log('stages sendWorkflowRequest-',stages);
+
     const enquiryType = await this.enquiryTypeRepository.getById(
       enquiry.enquiry_type_id as Types.ObjectId,
     );
+
+    console.log('enquiryType sendWorkflowRequest-',enquiryType);
 
     if (!enquiryType || !enquiryType?.stages) {
       throw new BadRequestException(
@@ -85,6 +92,8 @@ export class WorkflowService {
     const isWorkflowTestExist = enquiryType.stages.find((d) =>
       d.stage_id.equals(stages.stage_id),
     );
+    console.log('isWorkflowTestExist sendWorkflowRequest-',isWorkflowTestExist);
+
     if (!isWorkflowTestExist || !isWorkflowTestExist.workflow) {
       throw new BadRequestException(
         `EnquiryType :: Competency test or workflow missing in enquiry type id :: ${enquiry.enquiry_type_id}`,
@@ -96,6 +105,8 @@ export class WorkflowService {
       stage_name,
       req,
     );
+    console.log('workflow sendWorkflowRequest-',workflow);
+
     if (!workflow) {
       throw new NotFoundException(
         `Workflow :: workflow  id not found :: ${isWorkflowTestExist.workflow}`,
@@ -105,6 +116,7 @@ export class WorkflowService {
     const academicYearDetails = await this.mdmService.fetchDataFromAPI(
       `${MDM_API_URLS.ACADEMIC_YEAR}/${enquiry?.academic_year?.id}`,
     );
+    console.log('workflow academicYearDetails-',academicYearDetails);
 
     // Get the LOB segment ids based on school Id and academic year id (short name two digit code)
     const lobResponse = await this.mdmService.fetchDataFromAPI(
@@ -118,6 +130,7 @@ export class WorkflowService {
         ['fields[0]', 'lob_id'],
       ],
     );
+    console.log('workflow lobResponse-',lobResponse);
 
     if (!lobResponse?.data.length) {
       throw new HttpException('LOB Ids not found', HttpStatus.NOT_FOUND);
@@ -131,6 +144,7 @@ export class WorkflowService {
         ];
       },
     );
+    console.log('workflow businessSubSubVerticalIdPayload-',businessSubSubVerticalIdPayload);
 
     // Get the Business sub vertical Id based on Lob segment ids
     const businessSubVerticalResponse = await this.mdmService.fetchDataFromAPI(
@@ -143,6 +157,7 @@ export class WorkflowService {
         ...businessSubSubVerticalIdPayload,
       ],
     );
+    console.log('workflow businessSubVerticalResponse-',businessSubVerticalResponse);
 
     if (!businessSubVerticalResponse?.data?.length) {
       throw new HttpException(
@@ -168,6 +183,8 @@ export class WorkflowService {
       redirection_link: `${this.configService.get<string>('MARKETING_FRONTEND_URL')}/enquiries/view/${enquiry._id}`,
     };
 
+    console.log('WorkflowLogsParamDto sendWorkflowRequest-',param);
+
     const isCrossPlatformRequest = isAppRequest(req);
     const workflowResponse = await this.axiosService
       .setBaseUrl(`${this.configService.get<string>('ADMIN_PANEL_URL')}`)
@@ -179,6 +196,7 @@ export class WorkflowService {
       .setUrl(`${ADMIN_PANEL_URL.POST_WORKFLOW_LOGS}/${userId}`)
       .setBody(param)
       .sendRequest();
+    console.log('workflow workflowResponse-',workflowResponse);
 
     await this.enquiryLogService.createLog({
       enquiry_id: new Types.ObjectId(enquiry._id.toString()),
@@ -227,6 +245,7 @@ export class WorkflowService {
             result: additionalDetails?.status,
           },
         };
+console.log('param1-', JSON.stringify(param));
 
         await this.sendWorkflowRequest(
           param,
@@ -313,6 +332,8 @@ export class WorkflowService {
             earlier_shift: earlier_shift?.value,
           },
         };
+        console.log('param2-', JSON.stringify(param));
+
         await this.sendWorkflowRequest(
           ivtApprovalParams,
           enquiryDetails,

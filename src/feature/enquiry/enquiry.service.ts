@@ -75,6 +75,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { MasterFieldDto } from './app/dto';
 import { UpdateIvtEnquiryStatusDto } from './dto';
 import { FilterItemDto } from './dto/apiResponse.dto';
+import { GrReportFilterDto } from './dto/gr-report-filter.dto';
 import {
   EnquiryDetails,
   GetMergeDto,
@@ -155,6 +156,32 @@ export class EnquiryService {
 
   }
 
+  async getDuplicateEnquiries(payload) {
+    const enquiryDetails = await this.enquiryRepository.aggregate([
+      {
+        $match: {
+          $or: [
+            {"parent_details.father_details.email": payload.email},
+            {"parent_details.father_details.mobile": payload.phone},
+            {"parent_details.mother_details.email": payload.email},
+            {"parent_details.mother_details.mobile": payload.phone},
+            {"parent_details.guardian_details.email": payload.email},
+            {"parent_details.guardian_details.mobile": payload.phone},
+          ]
+        },
+      },
+      {
+        $project: {
+          enquiry_number: 1
+        }
+      },
+    ]);
+    if (!enquiryDetails.length) {
+      throw new HttpException('Enquiry not found', HttpStatus.NOT_FOUND);
+    }
+    
+    return enquiryDetails;
+  }
 
   private async processNewFees(
     enquiryDetails: any,
@@ -565,7 +592,11 @@ const feeData = await response.json();
               { 'enquiry_school_source.id': { $exists: true, $ne: null } },
               { 'other_details.enquiry_school_source_id': { $exists: true, $ne: null } },
               { 'enquiry_corporate_source.id': { $exists: true, $ne: null } },
-              { 'other_details.enquiry_corporate_source_id': { $exists: true, $ne: null } }
+              { 'other_details.enquiry_corporate_source_id': { $exists: true, $ne: null } },
+              { 'enquiry_parent_source': { $exists: true, $ne: null } },
+              { 'enquiry_corporate_source': { $exists: true, $ne: null } },
+              { 'enquiry_school_source': { $exists: true, $ne: null } },
+              { 'enquiry_employee_source': { $exists: true, $ne: null } },
             ]
           },
           {
@@ -660,14 +691,15 @@ const feeData = await response.json();
             other_details: 1,
             enquiry_source: 1,
             enquiry_sub_source: 1,
-            enquiry_school_source: 1,
             enquiry_corporate_source: 1,
             enquiry_parent_source: 1,
+            enquiry_employee_source: 1, // ✅ Include root level employee source
+            enquiry_school_source: 1,
             board: 1,
             assigned_to: 1,
             enrolment_number: 1,
             createdAt: 1,
-            admissionDetails: 1
+            admissionDetails: 1,
           }
         },
         { $sort: { createdAt: -1 } },
@@ -751,34 +783,80 @@ const feeData = await response.json();
 
         const od = enq?.other_details || {};
         
+        // ================================================================
+        // ✅ PRIORITY ORDER for extracting referral source details
+        // ================================================================
         let sourceName = '';
         let referrerPhone = null;
-        let referralPhone = parentNumber();
+        let referrerEmail = null;
+        let referralType = '';
+        
+        // PRIORITY 1: Parent Referral (ROOT level)
         if (enq.enquiry_parent_source) {
-          console.log('Parent referral view')
+          console.log('✅ Parent referral detected (root level)');
           sourceName = enq.enquiry_parent_source.name || 'Parent';
-          referrerPhone = enq.enquiry_parent_source.value;
-        } else if (od.enquiry_employee_source_id) {
-          sourceName = od.enquiry_employee_source_name || 'Employee';
-          referrerPhone = od.enquiry_employee_source_number;
-        } else if (enq.enquiry_school_source?.id) {
+          referrerPhone = enq.enquiry_parent_source.value; // Phone number
+          referrerEmail = enq.enquiry_parent_source.parent_email;
+          referralType = 'Parent Referral';
+        } 
+        // PRIORITY 2: Employee Referral (ROOT level) ✅ NEW!
+        else if (enq.enquiry_employee_source) {
+          console.log('✅ Employee referral detected (root level)');
+          sourceName = enq.enquiry_employee_source.name || 'Employee';
+          referrerPhone = enq.enquiry_employee_source.number; // ✅ Phone at root level
+          referrerEmail = enq.enquiry_employee_source.value; // ✅ Email at root level
+          referralType = 'Employee Referral';
+        }
+        // PRIORITY 3: Pre-School Referral (ROOT level)
+        else if (enq.enquiry_school_source?.id) {
+          console.log('✅ Pre-School referral detected (root level)');
           sourceName = enq.enquiry_school_source.value || 'Preschool';
           referrerPhone = enq.enquiry_school_source.spoc_mobile_no;
-        } else if (od.enquiry_school_source_id) {
-          sourceName = od.enquiry_school_source_value || 'Preschool';
-          referrerPhone = od.enquiry_school_source_number;
-        } else if (enq.enquiry_corporate_source?.id) {
+          referrerEmail = enq.enquiry_school_source.spoc_email;
+          referralType = 'Pre-School Referral';
+        } 
+        // PRIORITY 4: Corporate Referral (ROOT level)
+        else if (enq.enquiry_corporate_source?.id) {
+          console.log('✅ Corporate referral detected (root level)');
           sourceName = enq.enquiry_corporate_source.value || 'Corporate';
           referrerPhone = enq.enquiry_corporate_source.spoc_mobile_no;
-        } else if (od.enquiry_corporate_source_id) {
+          referrerEmail = enq.enquiry_corporate_source.spoc_email;
+          referralType = 'Corporate Referral';
+        }
+        // FALLBACK 1: Employee Referral (other_details)
+        else if (od.enquiry_employee_source_id) {
+          console.log('✅ Employee referral detected (other_details)');
+          sourceName = od.enquiry_employee_source_name || 'Employee';
+          referrerPhone = od.enquiry_employee_source_number;
+          referrerEmail = od.enquiry_employee_source_value;
+          referralType = 'Employee Referral (other_details)';
+        }
+        // FALLBACK 2: Pre-School Referral (other_details)
+        else if (od.enquiry_school_source_id) {
+          console.log('✅ Pre-School referral detected (other_details)');
+          sourceName = od.enquiry_school_source_value || 'Preschool';
+          referrerPhone = od.enquiry_school_source_number;
+          referrerEmail = od.enquiry_school_source_email;
+          referralType = 'Pre-School Referral (other_details)';
+        }
+        // FALLBACK 3: Corporate Referral (other_details)
+        else if (od.enquiry_corporate_source_id) {
+          console.log('✅ Corporate referral detected (other_details)');
           sourceName = od.enquiry_corporate_source_value || 'Corporate';
           referrerPhone = od.enquiry_corporate_source_number;
-        } else {
+          referrerEmail = od.enquiry_corporate_source_email;
+          referralType = 'Corporate Referral (other_details)';
+        }
+        // FALLBACK 4: Legacy referrer field
+        else {
+          console.log('⚠️ Using legacy referrer field');
           sourceName = (od.enquiry_parent_source_value && `${od.enquiry_parent_source_value}`) || '';
           referrerPhone = od.referrer?.phoneNumber || null;
-          referralPhone = od.referral?.phoneNumber || null;
+          referrerEmail = od.referrer?.email || null;
+          referralType = 'Legacy Referral';
         }
 
+        const referralPhone = parentNumber();
         const referralStatus = this.calculateReferralStatus(enq, parentNumber());
 
         console.log('sent_data___', {
@@ -796,8 +874,10 @@ const feeData = await response.json();
           enquirySource: enquirySource,
           enquirySubSource: enquirySubSource,
           sourceName: sourceName,
+          referralType: referralType, // ✅ NEW: Show referral type
           status: referralStatus,
           referrerPhone: referrerPhone,
+          referrerEmail: referrerEmail, // ✅ NEW: Include email
           referralPhone: referralPhone,
           referrerVerified: od.referrer?.verified || false,
           referralVerified: od.referral?.verified || false,
@@ -823,8 +903,10 @@ const feeData = await response.json();
           enquirySource: enquirySource,
           enquirySubSource: enquirySubSource,
           sourceName: sourceName,
+          referralType: referralType, // ✅ NEW: Show referral type
           status: referralStatus,
           referrerPhone: referrerPhone,
+          referrerEmail: referrerEmail, // ✅ NEW: Include email
           referralPhone: referralPhone,
           referrerVerified: od.referrer?.verified || false,
           referralVerified: od.referral?.verified || false,
@@ -1054,31 +1136,21 @@ const feeData = await response.json();
 
 
       // 🟢 Check if parent enquiry source exists
-      const parentSourceId = enquiry?.other_details?.enquiry_parent_source_id;
+      const parentSourceId =
+        enquiry?.other_details?.enquiry_parent_source_id ??
+        enquiry?.other_details?.enquiry_parent_source?.id ??
+        enquiry?.other_details?.enquiry_employee_source?.id ??
+        enquiry?.other_details?.enquiry_corporate_source?.id ??
+        enquiry?.other_details?.enquiry_school_source?.id ??
+        null;
 
-      if (parentSourceId) {
-        const parentEnquiryDocs = await this.enquiryRepository.getMany({
-          _id: new Types.ObjectId(parentSourceId),
-        });
+      enquiry.referring_parent_name =
+        enquiry?.enquiry_parent_source?.name ??
+        enquiry?.enquiry_employee_source?.name ??
+        enquiry?.enquiry_corporate_source?.value ??
+        enquiry?.enquiry_school_source?.value ??
+        null;
 
-        if (parentEnquiryDocs?.length) {
-          const parent = parentEnquiryDocs[0];
-          const parentDetails = parent?.parent_details || {};
-
-          // 🟢 Determine available parent name in priority: Father → Mother → Guardian
-          const referringfatherName = `${parentDetails?.father_details?.first_name} ${parentDetails?.father_details?.last_name}` || "";
-          const referringmotherName = `${parentDetails?.mother_details?.first_name} ${parentDetails?.mother_details?.last_name}` || "";
-          const referringguardianName = `${parentDetails?.guardian_details?.first_name} ${parentDetails?.guardian_details?.last_name}` || "";
-
-          const referringparentName =
-            referringfatherName || referringmotherName || referringguardianName || "Unknown";
-
-          // 🟢 Add the extracted parent name to main enquiry details
-          enquiry.referring_parent_name = referringparentName;
-        }
-      }
-
-      console.log("got the details", enquiry);
       return [enquiry];
 
     } catch (error) {
@@ -1097,6 +1169,8 @@ const feeData = await response.json();
     if (!existingEnquiry) {
       throw new HttpException('Enquiry not found', HttpStatus.NOT_FOUND);
     }
+
+    console.log('existing_enquiry___', existingEnquiry);
 
     const otherDetails = existingEnquiry.other_details || {};
     const parentDetails = existingEnquiry.parent_details || {};
@@ -1122,15 +1196,60 @@ const feeData = await response.json();
     let isMatch = false;
 
     if (action === 'referral') {
-      // ✅ Referral → check against source numbers
-      const validNumbers = [
-        otherDetails.enquiry_parent_source_value,
-        otherDetails.enquiry_employee_source_number,
-        otherDetails.enquiry_corporate_source_number,
-        otherDetails.enquiry_school_source_number,
-      ].filter(Boolean);
+      // ✅ Referral → check against source numbers following the PRIORITY ORDER
+      const validNumbers = [];
+      
+      // PRIORITY 1: Parent Referral (ROOT level)
+      if (existingEnquiry.enquiry_parent_source?.value) {
+        validNumbers.push(existingEnquiry.enquiry_parent_source.value);
+      }
+      
+      // PRIORITY 2: Employee Referral (ROOT level)
+      if (existingEnquiry.enquiry_employee_source?.number) {
+        validNumbers.push(existingEnquiry.enquiry_employee_source.number);
+      }
+      
+      // PRIORITY 3: Pre-School Referral (ROOT level)
+      if (existingEnquiry.enquiry_school_source?.spoc_mobile_no) {
+        validNumbers.push(existingEnquiry.enquiry_school_source.spoc_mobile_no);
+      }
+      
+      // PRIORITY 4: Corporate Referral (ROOT level)
+      if (existingEnquiry.enquiry_corporate_source?.spoc_mobile_no) {
+        validNumbers.push(existingEnquiry.enquiry_corporate_source.spoc_mobile_no);
+      }
+      
+      // FALLBACK 1: Employee Referral (other_details)
+      if (otherDetails.enquiry_employee_source_number) {
+        validNumbers.push(otherDetails.enquiry_employee_source_number);
+      }
+      
+      // FALLBACK 2: Pre-School Referral (other_details)
+      if (otherDetails.enquiry_school_source_number) {
+        validNumbers.push(otherDetails.enquiry_school_source_number);
+      }
+      
+      // FALLBACK 3: Corporate Referral (other_details)
+      if (otherDetails.enquiry_corporate_source_number) {
+        validNumbers.push(otherDetails.enquiry_corporate_source_number);
+      }
+      
+      // FALLBACK 4: Legacy parent source (other_details)
+      if (otherDetails.enquiry_parent_source_value) {
+        validNumbers.push(otherDetails.enquiry_parent_source_value);
+      }
+      
+      // FALLBACK 5: Legacy referrer phone
+      if (otherDetails.referrer?.phoneNumber) {
+        validNumbers.push(otherDetails.referrer.phoneNumber);
+      }
 
-      isMatch = validNumbers.includes(phoneNumber);
+      // Remove duplicates and filter out null/undefined
+      const uniqueValidNumbers = [...new Set(validNumbers.filter(Boolean))];
+      
+      console.log('Valid referral numbers:', uniqueValidNumbers);
+      isMatch = uniqueValidNumbers.includes(phoneNumber);
+      
     } else if (action === 'referrer') {
       // ✅ Referrer → check in parent_details
       const validNumbers = [
@@ -1139,6 +1258,7 @@ const feeData = await response.json();
         parentDetails?.guardian_details?.mobile,
       ].filter(Boolean);
 
+      console.log('Valid referrer numbers:', validNumbers);
       isMatch = validNumbers.includes(phoneNumber);
     }
 
@@ -1203,7 +1323,6 @@ const feeData = await response.json();
     );
 
     await this.verificationTrackerService.markAsVerified(enquiryId, action);
-    await this.verificationTrackerService.markAsVerified(enquiryId, action);
 
     return { message: `${action} verified successfully.` };
   }
@@ -1218,7 +1337,14 @@ const feeData = await response.json();
           { 'admissionDetails.enrolment_number': { $regex: search, $options: 'i' } },
           { 'parent_details.father_details.mobile': { $regex: search, $options: 'i' } },
           { 'parent_details.mother_details.mobile': { $regex: search, $options: 'i' } },
-          { 'parent_details.guardian_details.mobile': { $regex: search, $options: 'i' } }
+          { 'parent_details.guardian_details.mobile': { $regex: search, $options: 'i' } },
+          { 'enquiry_parent_source.value': { $regex: search, $options: 'i' } },
+
+          { 'enquiry_parent_source.name': { $regex: search, $options: 'i' } },
+          //!Look for Object ID for the Enquiry Registration Page
+          ...(Types.ObjectId.isValid(search)
+            ? [{ _id: new Types.ObjectId(search) }]
+            : [])
         ]
       } : {};
 
@@ -10738,14 +10864,7 @@ const feeData = await response.json();
     }
   }
 
-  async getMetabaseGrStudent(filters?: {
-    school?: string;
-    board?: string;
-    course?: string;
-    grade?: string[];
-    stream?: string;
-    year?: string;
-  }) {
+  async getMetabaseGrStudent(filters?: GrReportFilterDto) {
     try {
       const METABASE_URL = 'https://metabase-prod.ampersandgroup.in';
       const username = process.env.METABASE_USERNAME || 'AmolAhirrao@winjit.com';
@@ -10756,6 +10875,7 @@ const feeData = await response.json();
       }
 
       // 1. Login to get session token
+      console.log('=== Step 1: Authenticating with Metabase ===');
       const loginResponse = await fetch(`${METABASE_URL}/api/session`, {
         method: 'POST',
         headers: {
@@ -10765,84 +10885,206 @@ const feeData = await response.json();
       });
 
       if (!loginResponse.ok) {
+        const loginError = await loginResponse.text();
+        console.error('Login failed:', loginError);
         throw new HttpException('Failed to authenticate with Metabase', HttpStatus.UNAUTHORIZED);
       }
 
       const loginData: any = await loginResponse.json();
       const sessionToken = loginData.id;
+      console.log('✓ Authentication successful');
 
-      // 2. Fetch question results with filters
+      // 2. Build parameters for Metabase
+      console.log('=== Step 2: Building Parameters ===');
       const questionId = 93836;
-      
-      // Build parameters object for filters
       const parameters = [];
       
+      // CRITICAL: All parameters must be 'category' type (not 'number')
+      // This is required for Metabase Field Filter parameters with [[AND ...]] syntax
       if (filters?.school) {
-        parameters.push({ 
-          type: 'category', 
-          target: ['dimension', ['template-tag', 'school']], 
-          value: filters.school 
+        parameters.push({
+          type: 'number',
+          target: ['variable', ['template-tag', 'school']],
+          value: Number(filters.school)
         });
+        console.log('✓ Added school filter:', filters.school);
       }
       
       if (filters?.board) {
         parameters.push({ 
-          type: 'category', 
+          type: 'category',
           target: ['dimension', ['template-tag', 'board']], 
-          value: filters.board 
+          value: Number(filters.board)
         });
+        console.log('✓ Added board filter:', filters.board);
       }
       
       if (filters?.course) {
         parameters.push({ 
-          type: 'category', 
+          type: 'category',
           target: ['dimension', ['template-tag', 'course']], 
-          value: filters.course 
+          value: Number(filters.course)
         });
-      }
-      
-      if (filters?.grade) {
-        // Handle both single grade (string) and multiple grades (array)
-        const gradeValue = Array.isArray(filters.grade) ? filters.grade : [filters.grade];
-        parameters.push({ 
-          type: 'category', 
-          target: ['dimension', ['template-tag', 'grade']], 
-          value: gradeValue 
-        });
+        console.log('✓ Added course filter:', filters.course);
       }
       
       if (filters?.stream) {
         parameters.push({ 
-          type: 'category', 
+          type: 'category',
           target: ['dimension', ['template-tag', 'stream']], 
-          value: filters.stream 
+          value: Number(filters.stream)
         });
+        console.log('✓ Added stream filter:', filters.stream);
       }
       
-      if (filters?.year) {
+      if (filters?.academic_year) {
         parameters.push({ 
-          type: 'category', 
+          type: 'category',
           target: ['dimension', ['template-tag', 'year']], 
-          value: filters.year 
+          value: Number(filters.academic_year)
+        });
+        console.log('✓ Added academic_year filter:', filters.academic_year);
+      }
+
+      // CRITICAL: Grade parameter - now using numeric IDs instead of text names
+      // Frontend now sends grade IDs (numbers), not grade names (strings)
+      // Grade filter (Number Variable — SINGLE value only)
+      if (filters?.grade?.length) {
+        parameters.push({
+          type: 'category',
+          target: ['dimension', ['template-tag', 'grade']],
+          // value: filters.grade.map(Number), // ARRAY IS OK
+          value: Number(filters.grade), // ARRAY IS OK
         });
       }
 
+
+      console.log('');
+      console.log('=== Filter Summary ===');
+      console.log('Total parameters:', parameters.length);
+      console.log('Full parameters:', JSON.stringify(parameters, null, 2));
+
+      // 3. Query Metabase
+      console.log('');
+      console.log('=== Step 3: Querying Metabase ===');
+      console.log('Question ID:', questionId);
+      
+      const requestBody = { parameters };
+      
+      // DEBUGGING: Log the actual SQL that will be executed
+      console.log('');
+      console.log('=== DEBUG: Checking if parameters are applied ===');
+      console.log('Sending parameters:', JSON.stringify(parameters, null, 2));
+      
       const queryResponse = await fetch(`${METABASE_URL}/api/card/${questionId}/query/json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Metabase-Session': sessionToken,
         },
-        body: JSON.stringify({ parameters }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('Response status:', queryResponse.status);
+
       if (!queryResponse.ok) {
-        throw new HttpException('Failed to fetch data from Metabase', HttpStatus.BAD_GATEWAY);
+        const errorText = await queryResponse.text();
+        console.error('=== Metabase Query Error ===');
+        console.error('Status:', queryResponse.status);
+        console.error('Error:', errorText);
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          console.error('Error details:', JSON.stringify(errorJson, null, 2));
+        } catch (e) {
+          console.error('Raw error:', errorText);
+        }
+        
+        throw new HttpException(
+          `Metabase query failed: ${errorText.substring(0, 200)}`, 
+          HttpStatus.BAD_GATEWAY
+        );
       }
 
-      const queryData: any = await queryResponse.json();
+      const rawResponse: any = await queryResponse.json();
 
-      // Define the correct column order
+      let queryData: any[] = [];
+
+      if (Array.isArray(rawResponse)) {
+        queryData = rawResponse;
+      } else if (Array.isArray(rawResponse?.data)) {
+        queryData = rawResponse.data;
+      } else if (Array.isArray(rawResponse?.rows)) {
+        queryData = rawResponse.rows;
+      } else {
+        console.error('Unexpected Metabase response:', rawResponse);
+        throw new HttpException(
+          'Invalid response format from Metabase',
+          HttpStatus.BAD_GATEWAY
+        );
+      }
+
+      console.log('');
+      console.log('=== Step 4: Query Results ===');
+      console.log('✓ Query successful');
+      console.log('Total records fetched:', queryData?.length || 0);
+      
+      // CRITICAL: Verify filtering worked
+      if (queryData && queryData.length > 0) {
+        const uniqueGrades = [...new Set(queryData.map((r: any) => r['Student Grade']))];
+        console.log('');
+        console.log('=== FILTER VERIFICATION ===');
+        console.log('Expected grades:', filters?.grade || 'ALL');
+        console.log('Actual grades in results:', uniqueGrades);
+        console.log('Filter working?', filters?.grade ? 
+          (uniqueGrades.length === filters.grade.length && 
+          uniqueGrades.every(g => filters.grade.includes(g as any))) 
+          : 'N/A');
+        
+        if (filters?.grade && uniqueGrades.length > filters.grade.length) {
+          console.warn('⚠️ WARNING: More grades returned than filtered!');
+          console.warn('⚠️ This means the grade filter is NOT working!');
+        }
+      }
+
+      if (!queryData || queryData.length === 0) {
+        console.warn('⚠ No data found for filters:', filters);
+        
+        const emptyExcelData = [
+          ['GR No', 'Student Full Name', 'Father Full Name', 'Mother Full Name', 'Caste', 
+          'Place of Birth', 'Nationality', 'Date of Birth', 'Last School Attended', 
+          'Joining Date', 'Student Grade', 'General Conduct', 'Date of Leaving', 
+          'Grade From Which Left', 'Reason for Leaving', 'Created Date', 'Academic Year'],
+          ['No data found for the selected filters']
+        ];
+        
+        const buffer = xlsx.build([{ name: 'GR Report', data: emptyExcelData, options: {} }]);
+        const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
+        const filename = `GR_Report_No_Data_${timestamp}.xlsx`;
+
+        const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
+          buffer,
+          filename,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+
+        await this.setFileUploadStorage();
+        const uploadedFileName = await this.storageService.uploadFile(file, filename);
+        const bucketName = this.configService.get<string>('BUCKET_NAME');
+        const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+
+        return { 
+          url: signedUrl, 
+          file_url: signedUrl, 
+          fileName: uploadedFileName,
+          recordCount: 0,
+          message: 'No data found for the selected filters'
+        };
+      }
+
+      // 5. Process data
+      console.log('');
+      console.log('=== Step 5: Processing Data ===');
       const columnOrder = [
         'GR No',
         'Student Full Name',
@@ -10863,16 +11105,25 @@ const feeData = await response.json();
         'Academic Year'
       ];
 
-      // Process data with correct column order
       const rows = queryData.map((obj) => {
-        return columnOrder.map(columnName => obj[columnName] || '');
+        return columnOrder.map(columnName => {
+          const value = obj[columnName];
+          if (columnName.includes('Date') && value) {
+            try {
+              return new Date(value).toLocaleDateString('en-GB');
+            } catch {
+              return value || '';
+            }
+          }
+          return value || '';
+        });
       });
 
       const excelData = [columnOrder, ...rows];
-
       const buffer = xlsx.build([{ name: 'GR Report', data: excelData, options: {} }]);
 
-      // Create File
+      // 6. Upload file
+      console.log('=== Step 6: Uploading File ===');
       const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
       const filename = `GR_Report_${timestamp}.xlsx`;
 
@@ -10882,7 +11133,6 @@ const feeData = await response.json();
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
 
-      // Upload File
       await this.setFileUploadStorage();
       const uploadedFileName = await this.storageService.uploadFile(file, filename);
 
@@ -10890,16 +11140,32 @@ const feeData = await response.json();
         throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
       }
 
-      // Get Signed URL
       const bucketName = this.configService.get<string>('BUCKET_NAME');
       const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
 
-      return { file_url: signedUrl, fileName: uploadedFileName };
+      console.log('');
+      console.log('=== SUCCESS ===');
+      console.log('✓ File uploaded:', uploadedFileName);
+      console.log('✓ Total records:', queryData.length);
+      console.log('✓ Filters applied:', parameters.length);
+
+      return { 
+        url: signedUrl, 
+        file_url: signedUrl, 
+        fileName: uploadedFileName,
+        recordCount: queryData.length,
+        filtersApplied: parameters.length
+      };
 
     } catch (error) {
-      console.error('Metabase Integration Error:', error.message);
+      console.error('');
+      console.error('=== FATAL ERROR ===');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
       throw new HttpException(
-        error.message || 'An error occurred interaction with Metabase',
+        error.message || 'An error occurred interacting with Metabase',
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
