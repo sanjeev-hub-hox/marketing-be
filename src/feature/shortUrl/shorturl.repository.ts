@@ -16,7 +16,7 @@ export class ShortUrlRepository {
   create(data: any): Promise<ShortUrlDocument> {
     return this.ShortUrlModel.create({
       ...data,
-      expireAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+      expireAt: new Date(Date.now() + 15 * 60 * 1000), // 30 minutes
     });
   }
 

@@ -20,17 +20,7 @@ declare global {
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useStaticAssets(join(__dirname, '..', 'uploads'), { prefix: '/uploads' });
-  app.enableCors({})
-  // app.enableCors({
-  //   origin: (origin, callback) => {
-  //     if (!origin || origin.includes('localhost')) {
-  //       callback(null, true);
-  //     } else {
-  //       callback(new Error('CORS blocked'));
-  //     }
-  //   },
-  //   credentials: true,
-  // });
+  app.enableCors();
   app.use(helmet());
   app.setGlobalPrefix('marketing');
   const config = new DocumentBuilder()

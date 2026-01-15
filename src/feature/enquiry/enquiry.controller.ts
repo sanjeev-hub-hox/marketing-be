@@ -32,6 +32,7 @@ import { Request, Response } from 'express';
 
 import {
   extractCreatedByDetailsFromBody,
+  HandleDuplicateParentEnquiry,
   LoggerService,
   ResponseService,
 } from '../../utils';
@@ -278,11 +279,12 @@ export class EnquiryController {
   @Get('getEnrollmentAndParentNumber')
   async getEnrollmentAndParentNumber(
     @Query('search') search: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     try {
       const data =
-        await this.enquiryService.getEnrollmentAndParentNumber(search);
+        await this.enquiryService.getEnrollmentAndParentNumber(search, req);
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
@@ -844,7 +846,7 @@ export class EnquiryController {
     type: RequestValidationError,
   })
   @Post('handleDuplicate')
-  async handleDuplicate(
+  async getDuplicateEnquiries(
     @Res() res: Response,
     @Body() reqBody:any
   ) {
@@ -1001,24 +1003,24 @@ export class EnquiryController {
       this.loggerService.log(`Post cc enquiries list api called`);
       const filtersArray = filter;
       const createdByDetails = extractCreatedByDetailsFromBody(req);
-      // const { user_id } = createdByDetails;
+      const { user_id } = createdByDetails;
 
-      // const cacheKey = `cc_list:${user_id}:${page}:${size}:${JSON.stringify(filtersArray)}`;
+      const cacheKey = `cc_list:${user_id}:${page}:${size}:${JSON.stringify(filtersArray)}`;
 
-      // const cachedData = await this.redisInstance?.getData(cacheKey);
-      // if (cachedData) {
-      //   this.loggerService.log(`Cache hit for key: ${cacheKey}`);
-      //   return this.responseService.sendResponse(
-      //     res,
-      //     HttpStatus.OK,
-      //     {
-      //       ...cachedData,
-      //       _fromCache: true,
-      //       _cachedAt: new Date().toISOString(),
-      //     },
-      //     'Enquiries found (from cache)',
-      //   );
-      // }
+      const cachedData = await this.redisInstance?.getData(cacheKey);
+      if (cachedData) {
+        this.loggerService.log(`Cache hit for key: ${cacheKey}`);
+        return this.responseService.sendResponse(
+          res,
+          HttpStatus.OK,
+          {
+            ...cachedData,
+            _fromCache: true,
+            _cachedAt: new Date().toISOString(),
+          },
+          'Enquiries found (from cache)',
+        );
+      }
 
       const enquiryDetails = await this.enquiryService.getEnquiryDetailsCC(
         req,
@@ -1027,7 +1029,7 @@ export class EnquiryController {
         filtersArray.filters,
       );
 
-      // await this.redisInstance?.setData(cacheKey, enquiryDetails, 300);
+      await this.redisInstance?.setData(cacheKey, enquiryDetails, 300);
 
       return this.responseService.sendResponse(
         res,
@@ -2337,6 +2339,33 @@ export class EnquiryController {
     }
   }
 
+  @ApiOkResponse({
+    status: HttpStatus.OK,
+    description: 'Success response',
+  })
+  @ApiBadRequestResponse({
+    status: HttpStatus.OK,
+    description: 'Invalid data validation error response',
+    type: RequestValidationError,
+  })
+  @Post('handleDuplicate/findByEmailPhone')
+  async handleDuplicate(
+    @Res() res: Response,
+    @Body() reqBody:HandleDuplicateParentEnquiry
+  ) {
+    try {
+
+      const data = await this.enquiryService.getDuplicateEnquiriesByEmailPhone(reqBody);
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        data,
+        'DuplicateLeadByEmailPhone',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
 
   @ApiOkResponse({
     status: HttpStatus.OK,

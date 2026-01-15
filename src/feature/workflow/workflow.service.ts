@@ -153,7 +153,6 @@ export class WorkflowService {
         ['populate[0]', 'Base_Location'],
         ['populate[Base_Location][populate]', 'Base_Location'],
         ['fields[0]', 'id'],
-        ['pagination[pageSize]', 1],
         ...businessSubSubVerticalIdPayload,
       ],
     );

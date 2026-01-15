@@ -310,4 +310,11 @@ export const enquiryAuthorizedRoutes = [
     authenticate: true,
     authorize: false,
   },
+  {
+    path: '/enquiry/handleDuplicate/findByEmailPhone',
+    method: RequestMethod.POST,
+    permissions: '*',
+    authenticate: true,
+    authorize: false,
+  },
 ];

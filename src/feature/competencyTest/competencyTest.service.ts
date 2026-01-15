@@ -611,8 +611,8 @@ export class CompetencyTestService {
             ? EEnquiryEvent.COMPETENCY_TEST_PASSED
             : EEnquiryEvent.COMPETENCY_TEST_FAILED,
         log_data: competencyTest,
-        created_by: userInfo?.user_name ?? null,
-        created_by_id: userInfo?.user_id ?? null,
+        created_by: userInfo?.user_name ?? 'system',
+        created_by_id: userInfo?.user_id ?? 1,
       }),
       // Update the enquiry stage
       this.updateEnquiryStage(

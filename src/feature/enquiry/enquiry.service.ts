@@ -179,7 +179,7 @@ export class EnquiryService {
     if (!enquiryDetails.length) {
       throw new HttpException('Enquiry not found', HttpStatus.NOT_FOUND);
     }
-    
+
     return enquiryDetails;
   }
 
@@ -441,7 +441,7 @@ const feeData = await response.json();
     }
     console.log('feeData1', feeData?.data?.fees);
     console.log('feeData2', feeData?.data?.fees?.[enquire_id]);
-  
+
 
     if (!feeData?.data?.fees?.[enquire_id]) {
       return idArray;
@@ -520,43 +520,43 @@ const feeData = await response.json();
   // Helper method to calculate referral status
   private calculateReferralStatus(enquiry: any, parentNumber: string): string {
     const od = enquiry.other_details || {};
-    
+
     // ✅ PRIORITY 1: Check for manual rejection first
     if (od.manuallyRejectedData?.manuallyRejected) {
       return 'Rejected';
     }
-    
+
     // ✅ PRIORITY 2: Check for manual verification (HIGHEST PRIORITY)
     if (od.manuallyVerifiedData?.manuallyVerified) {
       return 'Both Verified';
     }
-    
+
     // Rest of your existing logic for automatic verification
     const referrerVerified = od.referrer?.verified || false;
     const referralVerified = od.referral?.verified || false;
-    
+
     if (referrerVerified && referralVerified) {
       return 'Both Verified';
     }
-    
+
     if (referrerVerified && !referralVerified) {
       return 'Referrer Verified';
     }
-    
+
     if (!referrerVerified && referralVerified) {
       return 'Referral Verified';
     }
-    
+
     // Check for phone mismatch
     const normalizePhone = (phone: string): string => {
       if (!phone) return '';
       return phone.toString().replace(/[\s\-\(\)]/g, '').trim();
     };
-    
+
     const parentPhone = normalizePhone(parentNumber);
     const referrerPhone = normalizePhone(od.referrer?.phoneNumber || '');
     const referralPhone = normalizePhone(od.referral?.phoneNumber || '');
-    
+
     return 'Pending';
   }
 
@@ -567,7 +567,7 @@ const feeData = await response.json();
       const skip = (pageNum - 1) * pageSizeNum;
 
       console.log('search___', searchTerm);
-      
+
       // Build search filter
       const searchFilter = searchTerm ? {
         $or: [
@@ -582,7 +582,7 @@ const feeData = await response.json();
 
       // Base filter for referrals
       const baseFilter = {
-        $and: [ 
+        $and: [
           {
             $or: [
               { 'other_details.referrer': { $exists: true, $ne: null } },
@@ -604,13 +604,13 @@ const feeData = await response.json();
               { 'student_details.enrolment_number': { $exists: true, $ne: null } },
               {
                 $and: [
-                  { 
-                    'enquiry_stages': { 
-                      $elemMatch: { 
-                        stage_name: 'Payment', 
-                        status: 'Completed' 
-                      } 
-                    } 
+                  {
+                    'enquiry_stages': {
+                      $elemMatch: {
+                        stage_name: 'Payment',
+                        status: 'Completed'
+                      }
+                    }
                   },
                   { 'registration_fees_paid': true }
                 ]
@@ -724,13 +724,13 @@ const feeData = await response.json();
 
       console.log('Main Pipeline:', JSON.stringify(pipeline, null, 2));
       console.log('Count Pipeline:', JSON.stringify(countPipeline));
-      
+
       const countResult = await this.enquiryRepository.aggregate(countPipeline);
       const totalCount = countResult.length > 0 ? countResult[0].total : 0;
 
       // Get paginated data
       const enquiryDocs = await this.enquiryRepository.aggregate(pipeline);
-      
+
       console.log('Enquiry Docs Found:', enquiryDocs.length);
       console.log('First Doc Sample:', JSON.stringify(enquiryDocs[0], null, 2));
 
@@ -782,7 +782,7 @@ const feeData = await response.json();
         console.log('enquiry_Data___', enq)
 
         const od = enq?.other_details || {};
-        
+
         // ================================================================
         // ✅ PRIORITY ORDER for extracting referral source details
         // ================================================================
@@ -790,7 +790,7 @@ const feeData = await response.json();
         let referrerPhone = null;
         let referrerEmail = null;
         let referralType = '';
-        
+
         // PRIORITY 1: Parent Referral (ROOT level)
         if (enq.enquiry_parent_source) {
           console.log('✅ Parent referral detected (root level)');
@@ -798,7 +798,7 @@ const feeData = await response.json();
           referrerPhone = enq.enquiry_parent_source.value; // Phone number
           referrerEmail = enq.enquiry_parent_source.parent_email;
           referralType = 'Parent Referral';
-        } 
+        }
         // PRIORITY 2: Employee Referral (ROOT level) ✅ NEW!
         else if (enq.enquiry_employee_source) {
           console.log('✅ Employee referral detected (root level)');
@@ -814,7 +814,7 @@ const feeData = await response.json();
           referrerPhone = enq.enquiry_school_source.spoc_mobile_no;
           referrerEmail = enq.enquiry_school_source.spoc_email;
           referralType = 'Pre-School Referral';
-        } 
+        }
         // PRIORITY 4: Corporate Referral (ROOT level)
         else if (enq.enquiry_corporate_source?.id) {
           console.log('✅ Corporate referral detected (root level)');
@@ -1072,7 +1072,7 @@ const feeData = await response.json();
       const manualRejectionData = {
         manuallyRejected: true,
         manuallyRejectedAt: new Date(),
-        manualRejectionReason: reason 
+        manualRejectionReason: reason
       };
 
       updateData.manuallyRejectedData = manualRejectionData;
@@ -1198,47 +1198,47 @@ const feeData = await response.json();
     if (action === 'referral') {
       // ✅ Referral → check against source numbers following the PRIORITY ORDER
       const validNumbers = [];
-      
+
       // PRIORITY 1: Parent Referral (ROOT level)
       if (existingEnquiry.enquiry_parent_source?.value) {
         validNumbers.push(existingEnquiry.enquiry_parent_source.value);
       }
-      
+
       // PRIORITY 2: Employee Referral (ROOT level)
       if (existingEnquiry.enquiry_employee_source?.number) {
         validNumbers.push(existingEnquiry.enquiry_employee_source.number);
       }
-      
+
       // PRIORITY 3: Pre-School Referral (ROOT level)
       if (existingEnquiry.enquiry_school_source?.spoc_mobile_no) {
         validNumbers.push(existingEnquiry.enquiry_school_source.spoc_mobile_no);
       }
-      
+
       // PRIORITY 4: Corporate Referral (ROOT level)
       if (existingEnquiry.enquiry_corporate_source?.spoc_mobile_no) {
         validNumbers.push(existingEnquiry.enquiry_corporate_source.spoc_mobile_no);
       }
-      
+
       // FALLBACK 1: Employee Referral (other_details)
       if (otherDetails.enquiry_employee_source_number) {
         validNumbers.push(otherDetails.enquiry_employee_source_number);
       }
-      
+
       // FALLBACK 2: Pre-School Referral (other_details)
       if (otherDetails.enquiry_school_source_number) {
         validNumbers.push(otherDetails.enquiry_school_source_number);
       }
-      
+
       // FALLBACK 3: Corporate Referral (other_details)
       if (otherDetails.enquiry_corporate_source_number) {
         validNumbers.push(otherDetails.enquiry_corporate_source_number);
       }
-      
+
       // FALLBACK 4: Legacy parent source (other_details)
       if (otherDetails.enquiry_parent_source_value) {
         validNumbers.push(otherDetails.enquiry_parent_source_value);
       }
-      
+
       // FALLBACK 5: Legacy referrer phone
       if (otherDetails.referrer?.phoneNumber) {
         validNumbers.push(otherDetails.referrer.phoneNumber);
@@ -1246,10 +1246,10 @@ const feeData = await response.json();
 
       // Remove duplicates and filter out null/undefined
       const uniqueValidNumbers = [...new Set(validNumbers.filter(Boolean))];
-      
+
       console.log('Valid referral numbers:', uniqueValidNumbers);
       isMatch = uniqueValidNumbers.includes(phoneNumber);
-      
+
     } else if (action === 'referrer') {
       // ✅ Referrer → check in parent_details
       const validNumbers = [
@@ -1282,19 +1282,19 @@ const feeData = await response.json();
 
       await this.enquiryRepository.updateById(
         new Types.ObjectId(enquiryId),
-        updatePayload
+        updatePayload,
       );
 
       if (newAttempts >= 3) {
         throw new HttpException(
           'Incorrect phone number entered 3 times. Verification locked.',
-          HttpStatus.BAD_REQUEST
+          HttpStatus.BAD_REQUEST,
         );
       }
 
       throw new HttpException(
         `Incorrect phone number. ${attemptsLeft} attempt(s) left.`,
-        HttpStatus.BAD_REQUEST
+        HttpStatus.BAD_REQUEST,
       );
     }
 
@@ -1329,179 +1329,263 @@ const feeData = await response.json();
 
 
 
-  async getEnrollmentAndParentNumber(search?: string) {
+  // Add this method to your EnquiryService class
+
+  /**
+   * Fetches enrollment details from external API
+   * @param enrollmentNumber - The enrollment number to search
+   * @param req - Request object for authorization header
+   */
+  async getEnrollmentDetailFromAPI(enrollmentNumber: string, req: Request) {
     try {
-      // Build search filter
-      const searchFilter = search ? {
-        $or: [
-          { 'admissionDetails.enrolment_number': { $regex: search, $options: 'i' } },
-          { 'parent_details.father_details.mobile': { $regex: search, $options: 'i' } },
-          { 'parent_details.mother_details.mobile': { $regex: search, $options: 'i' } },
-          { 'parent_details.guardian_details.mobile': { $regex: search, $options: 'i' } },
-          { 'enquiry_parent_source.value': { $regex: search, $options: 'i' } },
+      console.log('calling getEnrollmentDetailFromAPI____', enrollmentNumber, req)
+      console.log('response___', this.configService.get<string>('ADMIN_PANEL_URL'))
+      const response = await this.axiosService
+        .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
+        .setUrl('studentProfile/getEnrollmentDetail')
+        .setMethod(EHttpCallMethods.POST)
+        .setHeaders({
+          Authorization: req.headers.authorization,
+        } as AxiosRequestHeaders)
+        .setBody({
+          crt_enr_on: enrollmentNumber,
+        })
+        .sendRequest()
 
-          { 'enquiry_parent_source.name': { $regex: search, $options: 'i' } },
-          //!Look for Object ID for the Enquiry Registration Page
-          ...(Types.ObjectId.isValid(search)
-            ? [{ _id: new Types.ObjectId(search) }]
-            : [])
-        ]
-      } : {};
+      console.log('getEnr_data___', response);
 
-      // Build aggregation pipeline
-      const pipeline: any[] = [
-        {
-          $lookup: {
-            from: 'admission',
-            localField: '_id',
-            foreignField: 'enquiry_id',
-            as: 'admissionDetails',
-          },
-        },
-        {
-          $addFields: {
-            enrolment_number: {
-              $cond: {
-                if: {
-                  $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0],
-                },
-                then: {
-                  $let: {
-                    vars: {
-                      admissionRecordWithEnrolmentNumber: {
-                        $filter: {
-                          input: { $ifNull: ['$admissionDetails', []] },
-                          as: 'record',
-                          cond: {
-                            $and: [
-                              { $ne: ['$$record.enrolment_number', null] },
-                              { $ne: ['$$record.student_id', null] },
-                            ],
-                          },
-                        },
-                      },
-                    },
-                    in: {
-                      $cond: {
-                        if: { $gt: [{ $size: '$$admissionRecordWithEnrolmentNumber' }, 0] },
-                        then: {
-                          $arrayElemAt: [
-                            {
-                              $ifNull: [
-                                '$$admissionRecordWithEnrolmentNumber.enrolment_number',
-                                [],
-                              ],
-                            },
-                            0,
-                          ],
-                        },
-                        else: null,
-                      },
-                    },
-                  },
-                },
-                else: null,
-              },
-            },
-          },
-        },
-        {
-          $match: {
-            enrolment_number: { $nin: [null, ""] }
+      if (response?.data?.success && response?.data?.data) {
+        return response.data.data;
+      }
+
+      return null;
+    } catch (error) {
+      this.loggerService.log(
+        `Error fetching enrollment ${enrollmentNumber}: ${error.message}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Transforms API response to match the expected format
+   */
+  private transformAPIResponse(apiData: any): any {
+    const studentProfile = apiData.studentProfile;
+    const parents = apiData.parent || [];
+
+    // Find father, mother, and guardian from parent array
+    const father = parents.find(
+      (p: any) => p.relation?.toLowerCase() === 'father' || p.guardian_relationship_id === 6
+    );
+    const mother = parents.find(
+      (p: any) => p.relation?.toLowerCase() === 'mother' || p.guardian_relationship_id === 5
+    );
+    const guardian = parents.find(
+      (p: any) =>
+        p.relation?.toLowerCase() !== 'father' &&
+        p.relation?.toLowerCase() !== 'mother' &&
+        p.guardian_relationship_id !== 5 &&
+        p.guardian_relationship_id !== 6
+    );
+
+    // Determine primary contact (prefer preferred contacts)
+    let parentPhone = null;
+    let parentName = null;
+
+    const preferredParent = parents.find((p: any) => p.is_preferred_mobile_no === 1);
+
+    if (preferredParent) {
+      parentPhone = preferredParent.mobile_no;
+      parentName = [preferredParent.first_name, preferredParent.last_name]
+        .filter(Boolean)
+        .join(' ');
+    } else if (father?.mobile_no) {
+      parentPhone = father.mobile_no;
+      parentName = [father.first_name, father.last_name].filter(Boolean).join(' ');
+    } else if (mother?.mobile_no) {
+      parentPhone = mother.mobile_no;
+      parentName = [mother.first_name, mother.last_name].filter(Boolean).join(' ');
+    } else if (guardian?.mobile_no) {
+      parentPhone = guardian.mobile_no;
+      parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(' ');
+    }
+
+    return {
+      id: studentProfile.global_id?.toString() || studentProfile.id?.toString(),
+      student_name: [
+        studentProfile.first_name,
+        studentProfile.middle_name,
+        studentProfile.last_name,
+      ]
+        .filter(Boolean)
+        .join(' '),
+      enrollment_number: studentProfile.crt_enr_on || null,
+      parent_phone: parentPhone,
+      parent_name: parentName,
+      academic_year: studentProfile.academic_year_name || null,
+      parent_details: {
+        father: father
+          ? {
+            global_id: father.global_no || null,
+            first_name: father.first_name || null,
+            last_name: father.last_name || null,
+            mobile: father.mobile_no || null,
+            email: father.email || null,
+            country_code: null, // Not provided in API response
           }
-        },
-        ...(search ? [{ $match: searchFilter }] : []),
-        {
-          $project: {
-            _id: 1,
-            student_name: 1,
-            enrolment_number: 1,
-            'parent_details.father_details': 1,
-            'parent_details.mother_details': 1,
-            'parent_details.guardian_details': 1,
-            'academic_year.value': 1
+          : null,
+        mother: mother
+          ? {
+            global_id: mother.global_no || null,
+            first_name: mother.first_name || null,
+            last_name: mother.last_name || null,
+            mobile: mother.mobile_no || null,
+            email: mother.email || null,
+            country_code: null, // Not provided in API response
           }
-        },
-        { $sort: { enrolment_number: 1 } },
-        { $limit: 200 }
-      ];
+          : null,
+        guardian: guardian
+          ? {
+            first_name: guardian.first_name || null,
+            last_name: guardian.last_name || null,
+            mobile: guardian.mobile_no || null,
+            email: guardian.email || null,
+            relationship_with_child: guardian.relation || null,
+            country_code: null, // Not provided in API response
+          }
+          : null,
+      },
+    };
+  }
 
-      const enquiryDocs = await this.enquiryRepository.aggregate(pipeline);
+  async getEnrollmentAndParentNumber(search?: string, req?: Request) {
+    try {
+      console.log('data___' , this.configService.get<string>('ADMIN_PANEL_URL'))
+      console.log('req_data___', req)
+      console.log('search_string___', search)
+      // Validate req is provided
+      if (!req) {
+        throw new HttpException(
+          'Request object is required for API authentication',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
 
-      const result = enquiryDocs.map((enq) => {
-        const father = enq.parent_details?.father_details;
-        const mother = enq.parent_details?.mother_details;
-        const guardian = enq.parent_details?.guardian_details;
+      if (!search || !search.trim()) {
+        this.loggerService.warn('List functionality requires search parameter');
+        return [];
+      }
 
-        let parentPhone = null;
-        let parentName = null;
+      const searchTerm = search.trim();
 
-        if (father?.mobile) {
-          parentPhone = father.mobile;
-          parentName = [father.first_name, father.last_name].filter(Boolean).join(" ");
-        } else if (mother?.mobile) {
-          parentPhone = mother.mobile;
-          parentName = [mother.first_name, mother.last_name].filter(Boolean).join(" ");
-        } else if (guardian?.mobile) {
-          parentPhone = guardian.mobile;
-          parentName = [guardian.first_name, guardian.last_name].filter(Boolean).join(" ");
+      // Check if search term starts with "EA" (enrollment number search)
+      if (searchTerm.toUpperCase().startsWith('EN')) {
+        const apiData = await this.getEnrollmentDetailFromAPI(searchTerm, req);
+        console.log('Data fetching for the enrl-no___', apiData)
+        if (apiData) {
+          const transformed = this.transformAPIResponse(apiData);
+          const unique = [];
+          const seen = new Set();
+
+          if (transformed.enrollment_number && !seen.has(transformed.enrollment_number)) {
+            seen.add(transformed.enrollment_number);
+            unique.push(transformed);
+          }
+
+          return unique;
         }
 
-        return {
-          id: enq._id,
-          student_name: enq.student_name,
-          enrollment_number: enq.enrolment_number || null,
-          parent_phone: parentPhone,
-          parent_name: parentName,
-          academic_year: enq.academic_year?.value,
-          // Include all parent details
-          parent_details: {
-            father: father && Object.keys(father).length > 0 ? {
-              global_id: father.global_id || null,
-              first_name: father.first_name || null,
-              last_name: father.last_name || null,
-              mobile: father.mobile || null,
-              email: father.email || null,
-              country_code: father.country_code || null
-            } : null,
-            mother: mother && Object.keys(mother).length > 0 ? {
-              global_id: mother.global_id || null,
-              first_name: mother.first_name || null,
-              last_name: mother.last_name || null,
-              mobile: mother.mobile || null,
-              email: mother.email || null,
-              country_code: mother.country_code || null
-            } : null,
-            guardian: guardian && Object.keys(guardian).length > 0 ? {
-              first_name: guardian.first_name || null,
-              last_name: guardian.last_name || null,
-              mobile: guardian.mobile || null,
-              email: guardian.email || null,
-              relationship_with_child: guardian.relationship_with_child || null,
-              country_code: guardian.country_code || null
-            } : null
+        this.loggerService.warn(`No enrollment found for search term: ${searchTerm}`);
+        return [];
+      }
+
+      // Otherwise, treat as mobile number search
+      const guardiansData = await this.getGuardianStudentDetailsByMobile(searchTerm, req);
+
+      if (!guardiansData || !guardiansData.students || guardiansData.students.length === 0) {
+        this.loggerService.warn(`No students found for mobile number: ${searchTerm}`);
+        return [];
+      }
+
+      // Fetch enrollment details for each student found
+      const enrollmentPromises = guardiansData.students.map(async (student: any) => {
+        try {
+          const enrollmentNumber = student.crt_enr_on;
+          if (!enrollmentNumber) {
+            return null;
           }
-        };
+
+          const apiData = await this.getEnrollmentDetailFromAPI(enrollmentNumber, req);
+
+          if (apiData) {
+            return this.transformAPIResponse(apiData);
+          }
+
+          return null;
+        } catch (error) {
+          this.loggerService.log(
+            `Error fetching enrollment for student ${student.id}: ${error.message}`
+          );
+          return null;
+        }
       });
 
-      //! Get the unique Enrollment ID
+      const enrollmentResults = await Promise.all(enrollmentPromises);
+
+      // Filter out null results and deduplicate by enrollment number
       const unique = [];
       const seen = new Set();
 
-      for (const item of result) {
-        if (!seen.has(item.enrollment_number)) {
-          seen.add(item.enrollment_number);
-          unique.push(item);
+      for (const result of enrollmentResults) {
+        if (result && result.enrollment_number && !seen.has(result.enrollment_number)) {
+          seen.add(result.enrollment_number);
+          unique.push(result);
         }
       }
 
       return unique;
+
     } catch (error) {
-      console.error("Error fetching enrollment number and parent numbers:", error)
-      throw error
+      this.loggerService.error(
+        `Error fetching enrollment number and parent numbers: ${error.message}`,
+        error.stack
+      );
+      throw error;
     }
   }
 
+  /**
+   * Fetches student details by guardian mobile number from MDM API
+   * @param mobileNumber - The mobile number to search
+   * @param req - Request object for authorization header
+   */
+  private async getGuardianStudentDetailsByMobile(mobileNumber: string, req: Request) {
+    try {
+      const response = await this.axiosService
+        .setBaseUrl(this.configService.get<string>('MDM_URL'))
+        .setUrl('/api/guardian-student-details')
+        .setMethod(EHttpCallMethods.POST)
+        .setHeaders({
+          Authorization: req.headers.authorization,
+        } as AxiosRequestHeaders)
+        .setBody({
+          mobile_no: mobileNumber,
+        })
+        .sendRequest();
+
+      if (response?.data?.success && response?.data?.data) {
+        return response.data.data;
+      }
+
+      return null;
+    } catch (error) {
+      this.loggerService.log(
+        `Error fetching guardian-student details for mobile ${mobileNumber}: ${error.message}`
+      );
+      return null;
+    }
+  }
 
   private async getEnquiryDetail(enquiryNumber: string) {
     const enquiryDetails =
@@ -3343,7 +3427,7 @@ const feeData = await response.json();
     sortOrder?: 'asc' | 'desc',   // NEW PARAMETER
   ) {
     const startTime = Date.now(); // For performance monitoring
-    
+
     const pageNumber = page || 1;
     const pageSize = size ? parseInt(size as any, 10) : 10;
     const skip = (pageNumber - 1) * pageSize;
@@ -3413,11 +3497,11 @@ const feeData = await response.json();
     if (globalSearchText && globalSearchText.trim()) {
       const searchText = globalSearchText.trim();
       const escapedSearchText = escapeRegex(searchText);
-      
+
       // Enhanced email detection
       const fullEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const isFullEmail = fullEmailPattern.test(searchText);
-      
+
       // Check if it could be a partial email search (contains @ or looks like domain)
       const containsAt = searchText.includes('@');
       const isDomainLike = /^[a-zA-Z0-9]+([\-\.]{1}[a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$/.test(searchText);
@@ -3425,7 +3509,7 @@ const feeData = await response.json();
       // Check if it's a phone number search (digits, spaces, hyphens, parentheses, or starts with +)
       const phonePattern = /^[\d\s\-\(\)\+]+$/;
       const looksLikePhone = phonePattern.test(searchText);
-      
+
       if (looksLikePhone) {
         // ============================================
         // MOBILE NUMBER SEARCH (with normalization)
@@ -3435,7 +3519,7 @@ const feeData = await response.json();
         // Check if search text might include country code
         const startsWithPlus = searchText.startsWith('+');
         const searchWithoutPlus = searchText.replace(/^\+/, '');
-        
+
         pipeline.push({
           $match: {
             $or: [
@@ -3546,18 +3630,18 @@ const feeData = await response.json();
         // ============================================
         // EMAIL SEARCH (Full, Username, or Domain)
         // ============================================
-        
+
         const emailSearchConditions: any[] = [];
         const emailFields = [
           'parent_details.father_details.email',
           'parent_details.mother_details.email',
           'parent_details.guardian_details.email'
         ];
-        
+
         if (containsAt) {
           // User typed something with @
           // Example: "sanjeev@" or "sanjeev@gmail" or "sanjeevmajhi@gmail.com"
-          
+
           if (isFullEmail) {
             // Complete email search - exact match on full email
             emailFields.forEach((field) => {
@@ -3571,14 +3655,14 @@ const feeData = await response.json();
             const [usernamePart, domainPart] = searchText.split('@');
             const escapedUsername = escapeRegex(usernamePart);
             const escapedDomain = domainPart ? escapeRegex(domainPart) : '';
-            
+
             if (domainPart) {
               // Search for: username@domain (both parts provided)
               emailFields.forEach((field) => {
                 emailSearchConditions.push({
-                  [field]: { 
-                    $regex: `^${escapedUsername}.*@.*${escapedDomain}`, 
-                    $options: 'i' 
+                  [field]: {
+                    $regex: `^${escapedUsername}.*@.*${escapedDomain}`,
+                    $options: 'i'
                   }
                 });
               });
@@ -3586,9 +3670,9 @@ const feeData = await response.json();
               // Only username before @
               emailFields.forEach((field) => {
                 emailSearchConditions.push({
-                  [field]: { 
-                    $regex: `${escapedUsername}.*@`, 
-                    $options: 'i' 
+                  [field]: {
+                    $regex: `${escapedUsername}.*@`,
+                    $options: 'i'
                   }
                 });
               });
@@ -3598,9 +3682,9 @@ const feeData = await response.json();
           // Domain-only search (no @)
           emailFields.forEach((field) => {
             emailSearchConditions.push({
-              [field]: { 
-                $regex: `@.*${escapedSearchText}`, 
-                $options: 'i' 
+              [field]: {
+                $regex: `@.*${escapedSearchText}`,
+                $options: 'i'
               }
             });
           });
@@ -3608,14 +3692,14 @@ const feeData = await response.json();
           // Username-only search (no @ and not domain-like)
           emailFields.forEach((field) => {
             emailSearchConditions.push({
-              [field]: { 
-                $regex: `${escapedSearchText}.*@`, 
-                $options: 'i' 
+              [field]: {
+                $regex: `${escapedSearchText}.*@`,
+                $options: 'i'
               }
             });
           });
         }
-        
+
         pipeline.push({
           $match: {
             $or: emailSearchConditions
@@ -3638,7 +3722,7 @@ const feeData = await response.json();
               { 'parent_details.guardian_details.first_name': { $regex: escapedSearchText, $options: 'i' } },
               { 'parent_details.guardian_details.last_name': { $regex: escapedSearchText, $options: 'i' } },
               {
-                  
+
                 $expr: {
                   $regexMatch: {
                     input: { $concat: [{ $ifNull: ['$student_details.first_name', ''] }, ' ', { $ifNull: ['$student_details.last_name', ''] }] },
@@ -3661,12 +3745,12 @@ const feeData = await response.json();
               {
                 $expr: {
                   $regexMatch: {
-                    input: { 
+                    input: {
                       $concat: [
-                        { $ifNull: ['$parent_details.mother_details.first_name', ''] }, 
-                        ' ', 
+                        { $ifNull: ['$parent_details.mother_details.first_name', ''] },
+                        ' ',
                         { $ifNull: ['$parent_details.mother_details.last_name', ''] }
-                      ] 
+                      ]
                     },
                     regex: escapedSearchText,
                     options: 'i',
@@ -3677,12 +3761,12 @@ const feeData = await response.json();
               {
                 $expr: {
                   $regexMatch: {
-                    input: { 
+                    input: {
                       $concat: [
-                        { $ifNull: ['$parent_details.guardian_details.first_name', ''] }, 
-                        ' ', 
+                        { $ifNull: ['$parent_details.guardian_details.first_name', ''] },
+                        ' ',
                         { $ifNull: ['$parent_details.guardian_details.last_name', ''] }
-                      ] 
+                      ]
                     },
                     regex: escapedSearchText,
                     options: 'i',
@@ -4068,7 +4152,7 @@ const feeData = await response.json();
     // STEP 6: ADD SORT (After all computed fields)
     // ============================================
     const sortStage: any = {};
-    
+
     if (sortBy) {
       // Map frontend column names to database fields
       const sortFieldMap: Record<string, string> = {
@@ -4084,10 +4168,10 @@ const feeData = await response.json();
         'enquirer': 'enquirer',
         'status': 'status'
       };
-      
+
       const dbField = sortFieldMap[sortBy] || 'created_at';
       sortStage[dbField] = sortOrder === 'desc' ? -1 : 1;
-      
+
       // Add secondary sort by created_at if not primary sort
       if (dbField !== 'created_at') {
         sortStage.created_at = -1;
@@ -4096,7 +4180,7 @@ const feeData = await response.json();
       // Default sort
       sortStage.created_at = -1;
     }
-    
+
     pipeline.push({ $sort: sortStage });
 
     // ============================================
@@ -5574,6 +5658,45 @@ const feeData = await response.json();
 
     return { enquirerDetails, similarEnquiries: enquiriesToBeMerged };
   }
+
+  async getDuplicateEnquiriesByEmailPhone(payload) {
+    const match: any = {
+      $and: [
+        {
+          $or: [
+            { "parent_details.father_details.email": { $regex: new RegExp(`^${payload.email.trim()}$`, 'i') } },
+            { "parent_details.father_details.mobile": payload.phone.trim() },
+            { "parent_details.mother_details.email": {  $regex: new RegExp(`^${payload.email.trim()}$`, 'i') } },
+            { "parent_details.mother_details.mobile": payload.phone.trim() },
+            { "parent_details.guardian_details.email": { $regex: new RegExp(`^${payload.email.trim()}$`, 'i')} },
+            { "parent_details.guardian_details.mobile": payload.phone.trim() },
+          ],
+        },
+        {
+          "other_details.enquiry_type": payload.enquiryType,
+        },
+      ],
+    };
+
+    if (payload?.enquiryId) {
+      match.$and.push({
+        _id:{$ne: new Types.ObjectId(payload.enquiryId)},
+      });
+    }
+
+    const enquiryDetails = await this.enquiryRepository.aggregate([
+      { $match: match },
+      {
+        $project: {
+          enquiry_number: 1,
+        },
+      },
+    ]);
+
+
+    return enquiryDetails;
+  }
+
 
   async mergeEnquiry(targetEnquiry: string, body: PostMergeDto): Promise<void> {
     const { enquiryIds } = body;
@@ -7803,13 +7926,13 @@ const feeData = await response.json();
     // Apply filter_by logic (CC Only, School Only, All)
     if (filter_by === "CC Only") {
       // Filter enquiries handled by Call Center
-      matchConditions["enquiry_mode.value"] = { 
-        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"] 
+      matchConditions["enquiry_mode.value"] = {
+        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"]
       };
     } else if (filter_by === "School Only") {
       // Filter enquiries handled by School directly
-      matchConditions["enquiry_mode.value"] = { 
-        $in: ["Walkin", "Walkin (VMS)"] 
+      matchConditions["enquiry_mode.value"] = {
+        $in: ["Walkin", "Walkin (VMS)"]
       };
     }
     const pipeline: any[] = [
@@ -7900,7 +8023,7 @@ const feeData = await response.json();
               $map: {
                 input: "$enquiry_stages",
                 as: "stage",
-                in: { 
+                in: {
                   $and: [
                     { $eq: ["$$stage.stage_name", "Admitted or Provisional Approval"] },
                     {
@@ -7970,7 +8093,7 @@ const feeData = await response.json();
           total_raw_leads: {
             $sum: { $cond: ["$is_rl", 1, 0] }
           },
-          // QL = 
+          // QL =
           total_qualified_leads: {
             $sum: { $cond: ["$is_ql", 1, 0] }
           },
@@ -7979,7 +8102,7 @@ const feeData = await response.json();
             $sum: { $cond: ["$has_appoimnet", 1, 0] }
           },
           // Walk-in = 0 (placeholder as no specific walk-in stage exists)
-          total_walkin: { 
+          total_walkin: {
             $sum: { $cond: ["$has_walkeding", 1, 0] }
           },
           // Admission
@@ -8006,7 +8129,7 @@ const feeData = await response.json();
           rl_to_ql_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_qualified_leads", "$total_raw_leads"] }, 100] },
                   0
@@ -8018,7 +8141,7 @@ const feeData = await response.json();
           ql_to_appt_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_appointment", "$total_qualified_leads"] }, 100] },
                   0
@@ -8030,7 +8153,7 @@ const feeData = await response.json();
           appt_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_appointment", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_appointment"] }, 100] },
                   0
@@ -8042,7 +8165,7 @@ const feeData = await response.json();
           walkin_to_admission_percent: {
             $cond: [
               { $gt: ["$total_walkin", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_walkin"] }, 100] },
                   0
@@ -8054,7 +8177,7 @@ const feeData = await response.json();
           rl_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_raw_leads"] }, 100] },
                   0
@@ -8066,7 +8189,7 @@ const feeData = await response.json();
           rl_to_admission_percent: {
             $cond: [
               { $gt: ["$total_raw_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_raw_leads"] }, 100] },
                   0
@@ -8078,7 +8201,7 @@ const feeData = await response.json();
           ql_to_walkin_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_walkin", "$total_qualified_leads"] }, 100] },
                   0
@@ -8090,7 +8213,7 @@ const feeData = await response.json();
           ql_to_admission_percent: {
             $cond: [
               { $gt: ["$total_qualified_leads", 0] },
-              { 
+              {
                 $round: [
                   { $multiply: [{ $divide: ["$total_admission", "$total_qualified_leads"] }, 100] },
                   0
@@ -8212,8 +8335,8 @@ const feeData = await response.json();
       formattedRow['RL to QL %'] = row.rl_to_ql_percent ? `${row.rl_to_ql_percent}%` : '0%';
       formattedRow['QL to Appt %'] = row.ql_to_appt_percent ? `${row.ql_to_appt_percent}%` : '0%';
       formattedRow['Appt to Walkin%'] = row.appt_to_walkin_percent ? `${row.appt_to_walkin_percent}%` : '0%';
-      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null 
-        ? '#DIV/0!' 
+      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null
+        ? '#DIV/0!'
         : `${row.walkin_to_admission_percent || 0}%`;
       formattedRow['RL to Admission %'] = row.rl_to_admission_percent ? `${row.rl_to_admission_percent}%` : '0%';
       formattedRow['RL to Walkin%'] = row.rl_to_walkin_percent ? `${row.rl_to_walkin_percent}%` : '0%';
@@ -8276,8 +8399,8 @@ const feeData = await response.json();
         total_admissions: reportData.reduce((sum, row) => sum + (row.Admission || 0), 0),
       }
     };
-  } 
- 
+  }
+
 
   // Helper: Build dynamic group by expression
   private buildGroupByExpression(group_by: string[]) {
@@ -10611,7 +10734,7 @@ const feeData = await response.json();
 
         'Close Registration value': r.closed?.registration ?? 0,
         'Close Registration %': Number((r.closed.registration_pct ?? 0).toFixed(2)),
-        
+
         'Close Admission value': r.closed?.admission ?? 0,
         'Close Admission %': Number((r.closed?.admission_pct ?? 0).toFixed(2)),
 
@@ -10690,7 +10813,7 @@ const feeData = await response.json();
   }
 
   async getMetabaseStudentProfileDetails() {
-    try {      
+    try {
       const METABASE_URL = process.env.METABASE_URL || 'https://metabase-backend-1032326496689.asia-south1.run.app';
       const username = process.env.METABASE_USERNAME || 'AmolAhirrao@winjit.com';
       const password = process.env.METABASE_PASSWORD || '0T707i0?QpmtH3';
@@ -10735,14 +10858,14 @@ const feeData = await response.json();
       // 3. Process data for XLSX
       const cols = queryData.map((obj) => Object.keys(obj));
       const headers = cols[0] || [];
-      
+
       // If queryData is an array of objects
        const rows = queryData.map((obj) => Object.values(obj));
 
        const excelData = [headers, ...rows];
-       
+
        // Handle case where Metabase returns specific structure (data.cols, data.rows) or just array of objects
-       // The /query/json usually returns just an array of objects key-value pairs. 
+       // The /query/json usually returns just an array of objects key-value pairs.
        // If it was /query it might be different. based on "json" in url, it's likely array of objects.
 
       const buffer = xlsx.build([{ name: 'Student Profile Details', data: excelData, options: {} }]);
@@ -10760,7 +10883,7 @@ const feeData = await response.json();
       // 5. Upload File
       await this.setFileUploadStorage();
       const uploadedFileName = await this.storageService.uploadFile(file, filename);
-      
+
       if (!uploadedFileName) {
         throw new HttpException('File upload failed', HttpStatus.INTERNAL_SERVER_ERROR);
       }
@@ -10898,9 +11021,10 @@ const feeData = await response.json();
       console.log('=== Step 2: Building Parameters ===');
       const questionId = 93836;
       const parameters = [];
-      
-      // CRITICAL: All parameters must be 'category' type (not 'number')
-      // This is required for Metabase Field Filter parameters with [[AND ...]] syntax
+
+      // ALL parameters now use Number variable format
+      // This avoids Field Filter SQL alias issues
+
       if (filters?.school) {
         parameters.push({
           type: 'number',
@@ -10909,55 +11033,52 @@ const feeData = await response.json();
         });
         console.log('✓ Added school filter:', filters.school);
       }
-      
+
       if (filters?.board) {
-        parameters.push({ 
-          type: 'category',
-          target: ['dimension', ['template-tag', 'board']], 
+        parameters.push({
+          type: 'number',
+          target: ['variable', ['template-tag', 'board']],
           value: Number(filters.board)
         });
         console.log('✓ Added board filter:', filters.board);
       }
-      
+
       if (filters?.course) {
-        parameters.push({ 
-          type: 'category',
-          target: ['dimension', ['template-tag', 'course']], 
+        parameters.push({
+          type: 'number',
+          target: ['variable', ['template-tag', 'course']],
           value: Number(filters.course)
         });
         console.log('✓ Added course filter:', filters.course);
       }
-      
+
       if (filters?.stream) {
-        parameters.push({ 
-          type: 'category',
-          target: ['dimension', ['template-tag', 'stream']], 
+        parameters.push({
+          type: 'number',
+          target: ['variable', ['template-tag', 'stream']],
           value: Number(filters.stream)
         });
         console.log('✓ Added stream filter:', filters.stream);
       }
-      
+
       if (filters?.academic_year) {
-        parameters.push({ 
-          type: 'category',
-          target: ['dimension', ['template-tag', 'year']], 
+        parameters.push({
+          type: 'number',
+          target: ['variable', ['template-tag', 'year']],
           value: Number(filters.academic_year)
         });
         console.log('✓ Added academic_year filter:', filters.academic_year);
       }
 
-      // CRITICAL: Grade parameter - now using numeric IDs instead of text names
-      // Frontend now sends grade IDs (numbers), not grade names (strings)
-      // Grade filter (Number Variable — SINGLE value only)
+      // Grade - supports multiple values with IN clause
       if (filters?.grade?.length) {
         parameters.push({
-          type: 'category',
-          target: ['dimension', ['template-tag', 'grade']],
-          // value: filters.grade.map(Number), // ARRAY IS OK
-          value: Number(filters.grade), // ARRAY IS OK
+          type: 'number',
+          target: ['variable', ['template-tag', 'grade']],
+          value: filters.grade.join(',')  // Send as "1,2,3" for IN clause
         });
+        console.log('✓ Added grade filter:', filters.grade);
       }
-
 
       console.log('');
       console.log('=== Filter Summary ===');
@@ -10968,14 +11089,9 @@ const feeData = await response.json();
       console.log('');
       console.log('=== Step 3: Querying Metabase ===');
       console.log('Question ID:', questionId);
-      
+
       const requestBody = { parameters };
-      
-      // DEBUGGING: Log the actual SQL that will be executed
-      console.log('');
-      console.log('=== DEBUG: Checking if parameters are applied ===');
-      console.log('Sending parameters:', JSON.stringify(parameters, null, 2));
-      
+
       const queryResponse = await fetch(`${METABASE_URL}/api/card/${questionId}/query/json`, {
         method: 'POST',
         headers: {
@@ -10986,38 +11102,82 @@ const feeData = await response.json();
       });
 
       console.log('Response status:', queryResponse.status);
+      console.log('Response headers:', Object.fromEntries(queryResponse.headers.entries()));
 
       if (!queryResponse.ok) {
         const errorText = await queryResponse.text();
         console.error('=== Metabase Query Error ===');
         console.error('Status:', queryResponse.status);
         console.error('Error:', errorText);
-        
+
         try {
           const errorJson = JSON.parse(errorText);
           console.error('Error details:', JSON.stringify(errorJson, null, 2));
         } catch (e) {
           console.error('Raw error:', errorText);
         }
-        
+
         throw new HttpException(
-          `Metabase query failed: ${errorText.substring(0, 200)}`, 
+          `Metabase query failed: ${errorText.substring(0, 200)}`,
           HttpStatus.BAD_GATEWAY
         );
       }
 
       const rawResponse: any = await queryResponse.json();
 
+      // Check if response contains an error (even with 200 status)
+      if (rawResponse.status === 'failed' || rawResponse.error || rawResponse.error_type) {
+        console.error('');
+        console.error('=== METABASE QUERY EXECUTION ERROR ===');
+        console.error('Error:', rawResponse.error);
+        console.error('Error type:', rawResponse.error_type);
+        console.error('Class:', rawResponse.class);
+
+        throw new HttpException(
+          `Metabase query execution failed: ${rawResponse.error || 'Unknown error'}`,
+          HttpStatus.BAD_GATEWAY
+        );
+      }
+
+      console.log('');
+      console.log('=== RAW RESPONSE FROM METABASE ===');
+      console.log('Response type:', typeof rawResponse);
+      console.log('Is Array?:', Array.isArray(rawResponse));
+      console.log('Response keys:', Object.keys(rawResponse || {}));
+
       let queryData: any[] = [];
 
+      // Parse different response formats
       if (Array.isArray(rawResponse)) {
         queryData = rawResponse;
+        console.log('✓ Using rawResponse directly (array)');
+      } else if (rawResponse?.data?.cols && rawResponse?.data?.rows) {
+        // Metabase format with cols/rows
+        const cols = rawResponse.data.cols;
+        const rows = rawResponse.data.rows;
+
+        queryData = rows.map((row: any[]) => {
+          const obj: any = {};
+          cols.forEach((col: any, index: number) => {
+            obj[col.display_name || col.name] = row[index];
+          });
+          return obj;
+        });
+        console.log('✓ Using rawResponse.data.cols/rows (transformed)');
       } else if (Array.isArray(rawResponse?.data)) {
         queryData = rawResponse.data;
+        console.log('✓ Using rawResponse.data');
       } else if (Array.isArray(rawResponse?.rows)) {
         queryData = rawResponse.rows;
+        console.log('✓ Using rawResponse.rows');
       } else {
-        console.error('Unexpected Metabase response:', rawResponse);
+        console.error('');
+        console.error('=== UNEXPECTED RESPONSE FORMAT ===');
+        console.error('Response type:', typeof rawResponse);
+        console.error('Response is array?:', Array.isArray(rawResponse));
+        console.error('Response keys:', Object.keys(rawResponse || {}));
+        console.error('Response sample:', JSON.stringify(rawResponse, null, 2).substring(0, 2000));
+
         throw new HttpException(
           'Invalid response format from Metabase',
           HttpStatus.BAD_GATEWAY
@@ -11028,36 +11188,27 @@ const feeData = await response.json();
       console.log('=== Step 4: Query Results ===');
       console.log('✓ Query successful');
       console.log('Total records fetched:', queryData?.length || 0);
-      
-      // CRITICAL: Verify filtering worked
+
+      // Verify filtering worked
       if (queryData && queryData.length > 0) {
         const uniqueGrades = [...new Set(queryData.map((r: any) => r['Student Grade']))];
         console.log('');
         console.log('=== FILTER VERIFICATION ===');
         console.log('Expected grades:', filters?.grade || 'ALL');
         console.log('Actual grades in results:', uniqueGrades);
-        console.log('Filter working?', filters?.grade ? 
-          (uniqueGrades.length === filters.grade.length && 
-          uniqueGrades.every(g => filters.grade.includes(g as any))) 
-          : 'N/A');
-        
-        if (filters?.grade && uniqueGrades.length > filters.grade.length) {
-          console.warn('⚠️ WARNING: More grades returned than filtered!');
-          console.warn('⚠️ This means the grade filter is NOT working!');
-        }
       }
 
       if (!queryData || queryData.length === 0) {
         console.warn('⚠ No data found for filters:', filters);
-        
+
         const emptyExcelData = [
-          ['GR No', 'Student Full Name', 'Father Full Name', 'Mother Full Name', 'Caste', 
-          'Place of Birth', 'Nationality', 'Date of Birth', 'Last School Attended', 
-          'Joining Date', 'Student Grade', 'General Conduct', 'Date of Leaving', 
+          ['GR No', 'Student Full Name', 'Father Full Name', 'Mother Full Name', 'Caste',
+          'Place of Birth', 'Nationality', 'Date of Birth', 'Last School Attended',
+          'Joining Date', 'Student Grade', 'General Conduct', 'Date of Leaving',
           'Grade From Which Left', 'Reason for Leaving', 'Created Date', 'Academic Year'],
           ['No data found for the selected filters']
         ];
-        
+
         const buffer = xlsx.build([{ name: 'GR Report', data: emptyExcelData, options: {} }]);
         const timestamp = formatToTimeZone(new Date(), 'YYYY-MM-DD_HH-mm-ss', { timeZone: 'Asia/Kolkata' });
         const filename = `GR_Report_No_Data_${timestamp}.xlsx`;
@@ -11073,9 +11224,9 @@ const feeData = await response.json();
         const bucketName = this.configService.get<string>('BUCKET_NAME');
         const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
 
-        return { 
-          url: signedUrl, 
-          file_url: signedUrl, 
+        return {
+          url: signedUrl,
+          file_url: signedUrl,
           fileName: uploadedFileName,
           recordCount: 0,
           message: 'No data found for the selected filters'
@@ -11149,9 +11300,9 @@ const feeData = await response.json();
       console.log('✓ Total records:', queryData.length);
       console.log('✓ Filters applied:', parameters.length);
 
-      return { 
-        url: signedUrl, 
-        file_url: signedUrl, 
+      return {
+        url: signedUrl,
+        file_url: signedUrl,
         fileName: uploadedFileName,
         recordCount: queryData.length,
         filtersApplied: parameters.length
@@ -11163,7 +11314,7 @@ const feeData = await response.json();
       console.error('Error name:', error.name);
       console.error('Error message:', error.message);
       console.error('Error stack:', error.stack);
-      
+
       throw new HttpException(
         error.message || 'An error occurred interacting with Metabase',
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
@@ -11435,9 +11586,9 @@ async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
             },
           },
         },
-      
+
       // Group by visible dimensions
-     
+
 
       // Percentage calculation
         {
@@ -11458,7 +11609,7 @@ async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
               ' ',
               { $ifNull: ['$student_details.last_name', ''] },
             ],
-          },        
+          },
           academic_year: '$academic_year.value',
           grade: '$student_details.grade.value',
           contact_number: 1,
@@ -11590,7 +11741,7 @@ async generateAndUploadOutsideTatFollowupReportCsv(
   ): Promise<{ url: string; fileName: string }> {
     try {
       // const mergedRows = this.enquiryHelper.mergeVisibleRows(finalRows);
-      
+
       const formattedEnquiries = finalRows.map((r) => ({
         Cluster: r.cluster ?? 'NA',
         School: r.school_name ?? 'NA',

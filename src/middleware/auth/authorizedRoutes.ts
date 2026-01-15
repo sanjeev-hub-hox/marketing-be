@@ -40,6 +40,10 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
+    path: '/enquiry/getEnrollmentAndParentNumber',
+    method: RequestMethod.GET,
+  },
+  {
     path: '/enquiry/finance/enquiry-list/search',
     method: RequestMethod.GET,
   },
@@ -72,15 +76,11 @@ export const excludedRoutes = [
     method: RequestMethod.PATCH,
   },
   {
+    path: '/enquiry/:id/move-to-next-stage',
+    method: RequestMethod.PATCH,
+  },
+  {
     path: '/enquiry/referrals',
-    method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/getEnrollmentAndParentNumber/:search',
-    method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/:id',
     method: RequestMethod.GET,
   },
   {
@@ -104,18 +104,6 @@ export const excludedRoutes = [
     method: RequestMethod.GET,
   },
   {
-    path: '/enquiry/cc/list',
-    method: RequestMethod.POST,
-  },
-  {
-    path: '/enquiry/:id/similar-enquiries',
-    method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/ay/admission-enquiry-report',
-    method: RequestMethod.GET,
-  },
-  {
     path: '/enquiry/request-report/:reportType',
     method: RequestMethod.GET,
   },
@@ -124,7 +112,7 @@ export const excludedRoutes = [
     method: RequestMethod.POST,
   },
   {
-    path: '/enquiry/handleDuplicate',
+    path: 'enquiry/handleDuplicate/findByEmailPhone',
     method: RequestMethod.POST,
   },
   {
@@ -137,31 +125,11 @@ export const excludedRoutes = [
   },
   //! Temporary excluded routes for vgos integration
   {
-    path: '/enquiry/pre.vgos.org/:id',
+    path: 'enquiry/pre.vgos.org/:id',
     method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/:id/move-to-next-stage',
-    method: RequestMethod.PATCH,
   },
   {
     path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/metabase/gr-report',
-    method: RequestMethod.POST,
-  },
-  {
-    path: 'enquiry/getshortUrl/:id',
-    method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/getAllReferrals',
-    method: RequestMethod.GET,
-  },
-  {
-    path: '/enquiry/cc/list/',
-    method: RequestMethod.POST,
   },
 ];

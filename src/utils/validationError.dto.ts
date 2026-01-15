@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsNumber, IsString, ValidateNested } from 'class-validator';
+import { IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 
 class CauseDto {
@@ -26,4 +26,22 @@ export class RequestValidationError {
     @ValidateNested({ each: true })
     @Type(() => CauseDto)
     error: CauseDto
+}
+export class HandleDuplicateParentEnquiry {
+    @ApiProperty({ type: String })
+    @IsString()
+    email: string
+
+    @ApiProperty({ type: String })
+    @IsString()
+    phone: string
+
+    @ApiProperty({ type: String })
+    @IsString()
+    enquiryType: string
+
+    @ApiProperty({ type: String })
+    @IsString()
+    @IsOptional()
+    enquiryId: string 
 }
