@@ -773,6 +773,27 @@ export class EnquiryController {
     }
   }
 
+  @Get('getEnquiryDetails')
+  async getEnquiryDetail(
+    @Res() res: Response,
+    @Query('enquiryId') enquiryId: string, 
+  ) {
+    try {
+      this.loggerService.log(
+        `Get enquiry details API with enquiryId: ${enquiryId}`,
+      );
+      const result = await this.enquiryService.getEnquiryDetail(enquiryId);
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'Enquiry details found',
+      );
+    } catch (err: Error | unknown) {
+      throw err;
+    }
+  }
+
   @ApiOkResponse({
     status: HttpStatus.OK,
     description: 'Success response',

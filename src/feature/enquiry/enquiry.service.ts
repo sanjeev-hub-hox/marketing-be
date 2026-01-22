@@ -1461,9 +1461,6 @@ const feeData = await response.json();
 
   async getEnrollmentAndParentNumber(search?: string, req?: Request) {
     try {
-      console.log('data___' , this.configService.get<string>('ADMIN_PANEL_URL'))
-      console.log('req_data___', req)
-      console.log('search_string___', search)
       // Validate req is provided
       if (!req) {
         throw new HttpException(
@@ -1587,7 +1584,7 @@ const feeData = await response.json();
     }
   }
 
-  private async getEnquiryDetail(enquiryNumber: string) {
+  async getEnquiryDetail(enquiryNumber: string) {
     const enquiryDetails =
       await this.enquiryRepository.getByEnquiryNumber(enquiryNumber);
 

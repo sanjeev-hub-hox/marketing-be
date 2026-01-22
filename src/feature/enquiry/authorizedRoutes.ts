@@ -311,8 +311,8 @@ export const enquiryAuthorizedRoutes = [
     authorize: false,
   },
   {
-    path: '/enquiry/handleDuplicate/findByEmailPhone',
-    method: RequestMethod.POST,
+    path: '/enquiry/getEnquiryDetails', 
+    method: RequestMethod.GET,
     permissions: '*',
     authenticate: true,
     authorize: false,

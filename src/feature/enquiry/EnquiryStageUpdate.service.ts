@@ -435,14 +435,22 @@ export class EnquiryStageUpdateService {
                   let referralPhone: string | null = null;
                   let referralName: string | null = null;
                   let referralType: string | null = null;
+                  let referralEnrNo: string | null = null;
+                  let referralParentType: string | null = null;
 
                   this.loggerService.log(`🔍 Checking for referral sources in enquiry: ${enquiryData.enquiry_number}`);
                   
                   // ✅ PRIORITY 1: Check Parent Referral (enquiry_parent_source at ROOT)
                   if (enquiryData.enquiry_parent_source) {
-                    referralEmail = enquiryData.enquiry_parent_source.parent_email;
-                    referralPhone = enquiryData.enquiry_parent_source.value;
-                    referralName = enquiryData.enquiry_parent_source.name;
+                    // referralEmail = enquiryData.enquiry_parent_source.parent_email;
+                    // referralPhone = enquiryData.enquiry_parent_source.value;
+                    // referralName = enquiryData.enquiry_parent_source.name;
+                    referralEnrNo = enquiryData.enquiry_parent_source.enquirynumber;
+                    referralParentType = enquiryData.enquiry_parent_source.parent_type;
+                    //! first call the api to use the enr_no to fetch the student_id 
+                    
+
+                    //! second api for fetch the parent details based on the student_id
                     referralType = 'Parent Referral';
                     
                     this.loggerService.log(
@@ -568,56 +576,7 @@ export class EnquiryStageUpdateService {
                   }
                   
                   // ================================================================
-                  // STEP 2: Send notification to REFERRER (if exists)
-                  // ================================================================
-                  if (referralEmail || referralPhone) {
-                    try {
-                      const referralNotificationPayload = {
-                        slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                        employee_ids: [],
-                        global_ids: [],
-                        mail_to: referralEmail ? [referralEmail] : [],
-                        sms_to: referralPhone ? [referralPhone.toString().slice(-10)] : [],
-                        param: {
-                          parentName: referralName || 'Valued Referrer',
-                          referrerName: referralName || 'Valued Referrer',
-                          studentName: studentName,
-                          newParentName: parentName,
-                          schoolName: enquiryData.school_location?.value,
-                          academicYear: enquiryData.academic_year?.value,
-                        }
-                      };
-                      
-                      this.loggerService.log(
-                        `📧 Sending ${referralType} notification with payload: ${JSON.stringify(referralNotificationPayload)}`
-                      );
-                      
-                      await this.notificationService.sendNotification(
-                        referralNotificationPayload,
-                        token,
-                        platform
-                      );
-                      
-                      this.loggerService.log(
-                        `✅ ${referralType} notification sent successfully to:\n` +
-                        `   Email: ${referralEmail || 'N/A'}\n` +
-                        `   Phone: ${referralPhone || 'N/A'}`
-                      );
-                    } catch (notifError) {
-                      this.loggerService.error(
-                        `❌ Error sending ${referralType} notification: ${notifError.message}`,
-                        notifError.stack
-                      );
-                    }
-                  } else {
-                    this.loggerService.log(
-                      `ℹ️ No referral source detected for enquiry: ${enquiryData.enquiry_number}\n` +
-                      `   This is a direct admission (no referral)`
-                    );
-                  }
-                  
-                  // ================================================================
-                  // STEP 3: Call referral reminder service (handles ALL referral types)
+                  // STEP 2: Call referral reminder service (handles ALL referral types)
                   // ================================================================
                   await this.referralReminderService.sendInitialNotificationAndScheduleReminders(
                     enquiryData,
