@@ -597,32 +597,6 @@ export class EnquiryStageUpdateService {
                 // No referral - send standard admission notification only
                 // ================================================================
                 this.loggerService.log(`ℹ️ No referral source found for enquiry: ${enquiryData.enquiry_number}`);
-                
-                try {
-                  if (parentEmail) {
-                    await this.notificationService.sendNotification(
-                      {
-                        slug: 'Marketing related-Others-Email-Thu Dec 04 2025 01:25:58 GMT+0000 (Coordinated Universal Time)',
-                        employee_ids: [],
-                        global_ids: [],
-                        mail_to: [parentEmail],
-                        sms_to: parentPhone ? [parentPhone.toString().slice(-10)] : [],
-                        param: {
-                          parentName: parentName,
-                          studentName: studentName,
-                          schoolName: enquiryData.school_location?.value,
-                          academicYear: enquiryData.academic_year?.value,
-                        }
-                      },
-                      token,
-                      platform
-                    );
-                    
-                    this.loggerService.log(`✅ Standard admission notification sent`);
-                  }
-                } catch (error) {
-                  this.loggerService.error(`Error sending admission notification: ${error.message}`, error.stack);
-                }
               }
               
             } catch (error) {

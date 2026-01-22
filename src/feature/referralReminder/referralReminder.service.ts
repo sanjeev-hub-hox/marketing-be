@@ -15,6 +15,8 @@ import { ReminderRepository } from './referralReminder.repository';
 import { ReminderStatus } from './referralReminder.schema';
 import { ReminderRecipientType } from './referralReminder.schema';
 import { ShortUrlService } from '../shortUrl/shorturl.service';
+import { AxiosService, EHttpCallMethods } from '../../global/service';
+import { AxiosRequestHeaders } from 'axios';
 
 @Injectable()
 export class ReferralReminderService {
@@ -25,6 +27,7 @@ export class ReferralReminderService {
     private readonly verificationTracker: VerificationTrackerService,
     private readonly reminderRepository: ReminderRepository,
     private urlService: ShortUrlService,
+    private readonly axiosService: AxiosService,
   ) {}
 
   private calculateNextSchedule(startDate: Date, hoursToAdd: number): Date {
@@ -271,25 +274,116 @@ export class ReferralReminderService {
 
     // ✅ 1. Check for Parent Referral
     if (enquiryData?.enquiry_parent_source) {
-      const email = enquiryData.enquiry_parent_source.parent_email;
-      const name = enquiryData.enquiry_parent_source.name;
-      const phone = enquiryData.enquiry_parent_source.value;
+      const referralEnrNo = enquiryData.enquiry_parent_source.enquirynumber;
+      const referralParentType = enquiryData.enquiry_parent_source.parent_type;
 
-      if (email && phone) {
-        this.loggerService.log(`[REFERRAL] ✅ Found parent referrer: ${email}`);
+      if (referralEnrNo && referralParentType) {
+        this.loggerService.log(`[REFERRAL] 🔄 Fetching parent referrer details from APIs for enrollment: ${referralEnrNo}`);
 
-        const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referrer`;
-        let createUrl = await this.urlService.createUrl({url: parentUrl});
-        let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
-        
-        return {
-          type: ReminderRecipientType.REFERRER,
-          email,
-          phone: String(phone),
-          name,
-          verificationUrl: shortUrl, 
-          referredName: studentName,
-        };
+        try {
+          // Step 1: Get student_id using enrollment number
+          const mdmBaseUrl = this.configService.get<string>('MDM_URL') || 'https://preprod-mdm-strapi.ampersandgroup.in';
+          const mdmToken = this.configService.get<string>('MDM_TOKEN');
+          
+          const studentIdResponse = await this.axiosService
+            .setBaseUrl(mdmBaseUrl)
+            .setUrl(`/api/ac-students?fields[0]=id&filters[crt_enr_on]=${referralEnrNo}`)
+            .setMethod(EHttpCallMethods.GET)
+            .setHeaders({
+              Authorization: `Bearer ${mdmToken}`,
+            } as AxiosRequestHeaders)
+            .sendRequest();
+
+          if (!studentIdResponse.data?.data?.[0]?.id) {
+            this.loggerService.warn(`[REFERRAL] ⚠️ No student found for enrollment number: ${referralEnrNo}`);
+            return null;
+          }
+
+          const studentId = studentIdResponse.data.data[0].id;
+          this.loggerService.log(`[REFERRAL] ✅ Found student_id: ${studentId}`);
+
+          // Step 2: Login to get authentication token
+          const adminAuthUrl = this.configService.get<string>('ADMIN_AUTH_URL') || 'https://admin-panel-backend-1032326496689.asia-south1.run.app';
+          const adminUsername = this.configService.get<string>('ADMIN_USERNAME') || 'ps1@vgos.org';
+          const adminPassword = this.configService.get<string>('ADMIN_PASSWORD') || 'L8XcljPmjmGea322';
+          
+          if (!adminUsername || !adminPassword) {
+            this.loggerService.warn(`[REFERRAL] ⚠️ Admin credentials not configured`);
+            return null;
+          }
+          
+          const loginResponse = await this.axiosService
+            .setBaseUrl(adminAuthUrl)
+            .setUrl('/admin/auth/login')
+            .setMethod(EHttpCallMethods.POST)
+            .setHeaders({
+              'Content-Type': 'application/json'
+            } as AxiosRequestHeaders)
+            .setBody({
+              username: String(adminUsername),
+              password: String(adminPassword)
+            })
+            .sendRequest();
+
+          if (!loginResponse.data?.token) {
+            this.loggerService.warn(`[REFERRAL] ⚠️ Failed to get authentication token`);
+            return null;
+          }
+
+          const authToken = loginResponse.data.token;
+          this.loggerService.log(`[REFERRAL] ✅ Successfully obtained authentication token`);
+
+          // Step 3: Get parent details using student_id
+          const adminPanelUrl = this.configService.get<string>('ADMIN_PANEL_URL') || 'https://preprod-admin-panel-be-hubbleorion.hubblehox.com';
+          
+          const parentDetailsResponse = await this.axiosService
+            .setBaseUrl(adminPanelUrl)
+            .setUrl(`/admin/studentProfile/${studentId}`)
+            .setMethod(EHttpCallMethods.GET)
+            .setHeaders({
+              Authorization: `Bearer ${authToken}`,
+            } as AxiosRequestHeaders)
+            .sendRequest();
+
+          if (!parentDetailsResponse.data?.data?.parent) {
+            this.loggerService.warn(`[REFERRAL] ⚠️ No parent details found for student_id: ${studentId}`);
+            return null;
+          }
+
+          // Find the correct parent based on parent_type
+          const parents = parentDetailsResponse.data.data.parent;
+          const parentDetail = parents.find(p => p.relation === referralParentType);
+
+          if (!parentDetail) {
+            this.loggerService.warn(`[REFERRAL] ⚠️ No ${referralParentType} details found for student_id: ${studentId}`);
+            return null;
+          }
+
+          const email = parentDetail.email;
+          const phone = parentDetail.mobile_no;
+          const name = `${parentDetail.first_name} ${parentDetail.last_name}`;
+
+          if (email && phone) {
+            this.loggerService.log(`[REFERRAL] ✅ Found parent referrer from API: ${email}`);
+
+            const parentUrl = `${baseUrl}/referral-view/?id=${enquiryData._id}&type=parent&action=referrer`;
+            let createUrl = await this.urlService.createUrl({url: parentUrl});
+            let shortUrl = `${process.env.SHORT_URL_BASE || 'https://pre.vgos.org/?id='}${createUrl.hash}`;
+            
+            return {
+              type: ReminderRecipientType.REFERRER,
+              email,
+              phone: String(phone),
+              name,
+              verificationUrl: shortUrl, 
+              referredName: studentName,
+            };
+          } else {
+            this.loggerService.warn(`[REFERRAL] ⚠️ Parent found but missing email or phone. Email: ${email}, Phone: ${phone}`);
+          }
+        } catch (error) {
+          this.loggerService.error(`[REFERRAL] ❌ Error fetching parent referrer details from API: ${error.message}`, error.stack);
+        }
       }
     }
 
