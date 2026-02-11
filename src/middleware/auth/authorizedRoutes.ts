@@ -31,13 +31,13 @@ export const routes = [
 // Auth is excluded for these routes as these routes are mainly used for interservice communication
 // TODO: Remove these routes once other services pass token in the API call
 export const excludedRoutes = [
-    {
-    path: '/enquiry/getEnrollmentAndParentNumber/:search',
-    method: RequestMethod.GET,
+  {
+    path: '/admission/:enquiryId/submit-student-detail',
+    method: RequestMethod.POST,
   },
   {
-    path: '/enquiry/getEnquiryDetails/:enquiryId',
-    method: RequestMethod.GET,
+    path: '/enquiry/ay/outside-tat-followup-report',
+    method: RequestMethod.POST,
   },
   {
     path: '/enquiry/eligible-grade',
@@ -131,9 +131,5 @@ export const excludedRoutes = [
   {
     path: '/enquiry/getshortUrl/:id',
     method: RequestMethod.GET,
-  },
-  {
-    path: 'enquiry/:id/move-to-next-stage',
-    method: RequestMethod.PATCH,
   },
 ];

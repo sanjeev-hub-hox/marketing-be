@@ -49,6 +49,10 @@ export class StudentsDetailDto extends PartialType(StudentDetailsDto) {
   @IsOptional()
   @IsNumber()
   caste_id?: number;
+  
+  @IsString()
+  @IsOptional()
+  adhar_no?: string;
 
   @IsOptional()
   @IsNumber()

@@ -444,6 +444,35 @@ export class TransferEnquiryRequestDto {
 
     @ApiProperty({ type: MasterFieldDto })
     school_location: MasterFieldDto;
+
+    @ApiProperty({ type: String })
+    @IsString()
+    enquiry_number: string;
+
+    @ApiProperty({ type: MasterFieldDto })
+    brand: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    board: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    grade: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    course: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    shift: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    academicYearId: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    stream: MasterFieldDto;
+
+    @ApiProperty({ type: MasterFieldDto })
+    @IsOptional()
+    guestHostSchool?: MasterFieldDto;
 }
 
 class MedicalDetails {

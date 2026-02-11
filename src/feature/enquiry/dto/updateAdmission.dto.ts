@@ -85,6 +85,18 @@ export class CheckFeePayload {
   @Type(() => DropdownValue)
   guest_school: DropdownValue;
 
+  @ApiProperty({ type: DropdownValue, required: false })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DropdownValue)
+  school_location?: DropdownValue;
+
+  @ApiProperty({ type: DropdownValue, required: false })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DropdownValue)
+  guestHostSchool?: DropdownValue;
+
 }
 
 export class UpdateAcStudentGuardianDto {

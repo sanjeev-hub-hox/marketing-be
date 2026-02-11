@@ -121,4 +121,24 @@ getManyL(
   getCount(filter: Record<string, any>): Promise<number> {
     return this.enquiryModel.countDocuments(filter);
   }
+
+  async getWorkflowLogByReferenceId(referenceId: string): Promise<any> {
+    try {
+      const workflowLogsCollection = this.enquiryModel.db.collection('workflowLogs');
+      const result = await workflowLogsCollection
+        .find({ reference_id: referenceId })
+        .sort({ _id: -1 })
+        .limit(1)
+        .next();
+      
+      return result;
+    } catch (error) {
+      console.error('Error fetching workflow log:', error);
+      return null;
+    }
+  }
+
+  aggregateCursor(pipeline: any[]) {
+    return this.enquiryModel.aggregate(pipeline).cursor();
+  }
 }

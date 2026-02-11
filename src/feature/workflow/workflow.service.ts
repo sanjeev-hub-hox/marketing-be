@@ -233,6 +233,7 @@ export class WorkflowService {
           description_variables: {
             student_name: `${enquiryDetails.student_details.first_name} ${enquiryDetails.student_details.last_name}`,
             enrolment_number: student_details?.enrolment_number,
+            enquiry_number: enquiryDetails?.enquiry_number,
             academic_year: academic_year?.value,
             school_location: school_location?.value,
             brand: brand?.value,

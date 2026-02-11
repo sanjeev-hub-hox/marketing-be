@@ -54,7 +54,7 @@ import {
 } from '../../utils/utility-functions';
 import { AdmissionRepository } from '../admission/admission.repository';
 import { AdmissionService } from '../admission/admission.service';
-import { EAdmissionApprovalStatus } from '../admission/admission.type';
+import { EAdmissionApprovalStatus, EFeeType } from '../admission/admission.type';
 import { CsvService } from '../csv/csv.service';
 import { EnquiryLogRepository } from '../enquiryLog/enquiryLog.repository';
 import { EnquiryLogService } from '../enquiryLog/enquiryLog.service';
@@ -74,7 +74,7 @@ import { PdfService } from '../pdf/pdf.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { MasterFieldDto } from './app/dto';
 import { UpdateIvtEnquiryStatusDto } from './dto';
-import { FilterItemDto } from './dto/apiResponse.dto';
+import { FilterItemDto, TransferEnquiryRequestDto } from './dto/apiResponse.dto';
 import { GrReportFilterDto } from './dto/gr-report-filter.dto';
 import {
   EnquiryDetails,
@@ -110,6 +110,7 @@ import { JobShadulerService } from '../jobShaduler/jobShaduler.service';
 // import { AppRegistrationService } from '../registration/app/appRegistration.service';
 import { ReferralReminderService } from '../referralReminder/referralReminder.service';
 import { VerificationTrackerService } from '../referralReminder/verificationTracker.service';
+import { FEETYPES } from '../admission/admission.dto';
 
 @Injectable()
 export class EnquiryService {
@@ -188,144 +189,178 @@ export class EnquiryService {
     payload: CheckFeePayload,
     req: any,
   ) {
+
     const enquiryId = enquiryDetails?._id;
+    const RegistrationFeesStatus = enquiryDetails.enquiry_stages.find(s => s.stage_name === "Academic Kit Selling")?.status;
+    const admissionFeesStatus = enquiryDetails.enquiry_stages.find(s => s.stage_name === "Admission Status")?.status;
+    const paymentFeeStatus = enquiryDetails.enquiry_stages.find(s => s.stage_name === "Payment")?.status;
 
-    const RegistrationFeesStatus = enquiryDetails.enquiry_stages.find(
-      s => s.stage_name === "Academic Kit Selling"
-    )?.status;
-    const admissionFeesStatus = enquiryDetails.enquiry_stages.find(
-      s => s.stage_name === "Payment"
-    )?.status;
+    if (RegistrationFeesStatus == 'In Progress') {
+      // Extract year from academic_year value (e.g., "AY 2024 - 25" -> "2024")
+      const currentYear = enquiryDetails.academic_year?.value;
+      const newYear = payload.academicYearId?.value;
 
-    await this.performBulkDeEnrollment(enquiryDetails, enquiryId, payload, req);
+      if (currentYear && newYear && currentYear !== newYear) {
+         return {
+          status: HttpStatus.BAD_REQUEST,
+          message: 'Enquiry cannot be transferred to a different academic year during the Academic Kit Selling stage.',
+        };
+      }
 
+      await this.performBulkDeEnrollment(enquiryDetails, enquiryId, payload, req);
+      await this.enquiryRepository.updateOne({ _id: enquiryId }, { $set: { registration_fee_request_triggered: false } });
+      const newUrl = process.env.FINANCE_URL;
 
-    if (RegistrationFeesStatus == 'In Progress' || RegistrationFeesStatus == 'Completed') {
+      let response: any;
+      let feesList = [];
       try {
-        const attachregistartionFees = await this.axiosService
-          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-          .setUrl(ADMIN_API_URLS.MAP_FEES)
-          .setMethod(EHttpCallMethods.POST)
-          .setHeaders({
-            Authorization: req.headers.authorization,
-          } as AxiosRequestHeaders)
-          .setBody({
-            enquiry_no: enquiryDetails.enquiry_number,
-            enquiry_id: enquiryId.toString(),
-            school_id: payload.school.id,
-            grade_id: payload.grade.id,
-            board_id: payload.board.id,
-            shift_id: payload.shift.id,
-            course_id: payload.course.id,
-            stream_id: payload.stream.id,
-            academicYear_id: parseInt(
-              payload.academicYearId.value.split(' - ')[1],
-              10,
-            ),
-            ...(payload?.guest_school?.id
-              ? { guest_school: payload.guest_school.id }
-              : {}),
-            fee_type_id: 12,
-          })
-          .sendRequest();
+        const fetchResponse: any = await fetch(
+          `${newUrl}/fee_collection/fee_details`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: req.headers.authorization,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: 'all_fees',
+              students: [enquiryId],
+              // Robust extraction: try splitting "AY 27" -> "27", or fall back to the raw value or ID
+              academic_years: [enquiryDetails.academic_year?.value?.split(' ')?.pop() || enquiryDetails.academic_year?.id?.toString()],
+            }),
+          },
+        );
+        response = await fetchResponse.json();
+        feesList = response?.data?.fees?.[enquiryId]?.[enquiryDetails.academic_year?.value] || [];
       } catch (error) {
-        console.error('Failed to map registration fees:', error);
+        this.loggerService.error('Err occured while fetching fee details', error);
+        feesList = []; // Default to empty to trigger fee attachment if verification fails
+      }
+      
+      const registrationFess = feesList?.filter(fee => fee.fee_type_id === FEETYPES.registration_fees);
+
+      // Scenario: Attach if MISSING (!length) or PARTIALLY PAID. Skip if FULLY PAID.
+      if (!registrationFess?.length || (registrationFess[0]?.amount !== registrationFess[0]?.paid)) {
+        const updatedEnquiryForFee = {
+          ...enquiryDetails,
+          // Use school_location if provided, otherwise fall back to school, then existing value
+          school_location: payload.school_location || enquiryDetails.school_location,
+          brand: payload.brand,
+          board: payload.board,
+          grade: payload.grade,
+          course: payload.course,
+          shift: payload.shift,
+          stream: payload.stream,
+          academic_year: payload.academicYearId,
+          student_details: {
+            ...enquiryDetails.student_details,
+            grade: payload.grade
+          },
+          // Use guestHostSchool if provided (optional), otherwise fall back to guest_school
+          guest_student_details: (payload.guestHostSchool) ? {
+            location: payload.guestHostSchool
+          } : enquiryDetails.guest_student_details
+        };
+        
+        await this.enquiryHelper.sendCreateRegistrationFeeRequest(updatedEnquiryForFee, req);
       }
     }
-    if (admissionFeesStatus == 'In Progress' || admissionFeesStatus == 'Completed') {
-      try {
-        const attachPregistartionFees = await this.axiosService
-          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-          .setUrl(ADMIN_API_URLS.MAP_FEES)
+    if (admissionFeesStatus == 'In Progress' || admissionFeesStatus == 'Pending' || admissionFeesStatus == 'Approved' || paymentFeeStatus == 'In Progress') {
+      const workflowLog = await this.enquiryRepository.getWorkflowLogByReferenceId(enquiryDetails.enquiry_number);
+      if (workflowLog) {
+        await this.axiosService
+          .setBaseUrl(process.env.ADMIN_PANEL_URL)
+          .setUrl('workflow/disable-workflow')
           .setMethod(EHttpCallMethods.POST)
-          .setHeaders({
-            Authorization: req.headers.authorization,
-          } as AxiosRequestHeaders)
-          .setBody({
-            enquiry_no: enquiryDetails.enquiry_number,
-            enquiry_id: enquiryId.toString(),
-            school_id: payload.school.id,
-            grade_id: payload.grade.id,
-            board_id: payload.board.id,
-            shift_id: payload.shift.id,
-            course_id: payload.course.id,
-            stream_id: payload.stream.id,
-            academicYear_id: parseInt(
-              payload.academicYearId.value.split(' - ')[1],
-              10,
-            ),
-            ...(payload?.guest_school?.id
-              ? { guest_school: payload.guest_school.id }
-              : {}),
-            fee_type_id: 9,
-          })
+          .setHeaders({ Authorization: req.headers.authorization } as AxiosRequestHeaders)
+          .setBody({ workflow_log_id: workflowLog._id.toString() })
           .sendRequest();
-      } catch (error) {
-        console.error('Failed to map tuesion fees:', error);
       }
-      try {
-        const attachAdmissionFees = await this.axiosService
-          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-          .setUrl(ADMIN_API_URLS.MAP_FEES)
-          .setMethod(EHttpCallMethods.POST)
-          .setHeaders({
-            Authorization: req.headers.authorization,
-          } as AxiosRequestHeaders)
-          .setBody({
-            enquiry_no: enquiryDetails.enquiry_number,
-            enquiry_id: enquiryId.toString(),
-            school_id: payload.school.id,
-            grade_id: payload.grade.id,
-            board_id: payload.board.id,
-            shift_id: payload.shift.id,
-            course_id: payload.course.id,
-            stream_id: payload.stream.id,
-            academicYear_id: parseInt(
-              payload.academicYearId.value.split(' - ')[1],
-              10,
-            ),
-            ...(payload?.guest_school?.id
-              ? { guest_school: payload.guest_school.id }
-              : {}),
-            fee_type_id: 1,
-            fee_sub_type_id: 3,
-          })
-          .sendRequest();
-      } catch (error) {
-        console.error('Failed to map admission fees:', error);
-      }
-      try {
-        const attachsecurityFees = await this.axiosService
-          .setBaseUrl(this.configService.get<string>('ADMIN_PANEL_URL'))
-          .setUrl(ADMIN_API_URLS.MAP_FEES)
-          .setMethod(EHttpCallMethods.POST)
-          .setHeaders({
-            Authorization: req.headers.authorization,
-          } as AxiosRequestHeaders)
-          .setBody({
-            enquiry_no: enquiryDetails.enquiry_number,
-            enquiry_id: enquiryId.toString(),
-            school_id: payload.school.id,
-            grade_id: payload.grade.id,
-            board_id: payload.board.id,
-            shift_id: payload.shift.id,
-            course_id: payload.course.id,
-            stream_id: payload.stream.id,
-            academicYear_id: parseInt(
-              payload.academicYearId.value.split(' - ')[1],
-              10,
-            ),
-            ...(payload?.guest_school?.id
-              ? { guest_school: payload.guest_school.id }
-              : {}),
-            fee_type_id: 17,
-          })
-          .sendRequest();
-      } catch (error) {
-        console.error('Failed to map security fees:', error);
-      }
+      await this.enquiryRepository.updateOne({ _id: enquiryId }, { 
+        $set: { 
+          admission_fee_request_triggered: false,
+          'enquiry_stages.$[payment].status': EEnquiryStageStatus.OPEN,
+          'enquiry_stages.$[admission].status': EEnquiryStageStatus.PENDING 
+        } 
+      }, {
+        arrayFilters: [
+          { 'payment.stage_name': 'Payment' },
+          { 'admission.stage_name': 'Admission Status' }
+        ]
+      });
+      // Update enquiry details with new transfer values for workflow and fee request
+      const updatedEnquiryForFee = {
+        ...enquiryDetails,
+        // Use school_location if provided, otherwise fall back to existing value
+        school_location: payload.school_location || enquiryDetails.school_location,
+        brand: payload.brand,
+        board: payload.board,
+        grade: payload.grade,
+        course: payload.course,
+        shift: payload.shift,
+        stream: payload.stream,
+        academic_year: payload.academicYearId,
+        student_details: {
+          ...enquiryDetails.student_details,
+          grade: payload.grade
+        },
+        // Use guestHostSchool if provided (optional), otherwise fall back to guest_school
+        guest_student_details: (payload.guestHostSchool || payload.guest_school) ? {
+          location: payload.guestHostSchool || payload.guest_school
+        } : enquiryDetails.guest_student_details
+      };
+      await this.workflowService.triggerWorkflow(updatedEnquiryForFee, null, req);
+      
+      // Fix: Follow the pattern of sendCreateRegistrationFeeRequest to ensure fee_type is valid
+      // We manually set a valid default fee object to prevent 'fee_type as undefined'
+      await this.admissionRepository.updateByEnquiryId(new Types.ObjectId(enquiryId), {
+        $set: { 
+          'default_fees.0': { 
+            fee_type_slug: EFeeType.ADMISSION,
+            fee_sub_type_id: 3 
+          },
+          admission_fee_request_triggered: false 
+        }
+      });
+      await this.performBulkDeEnrollment(enquiryDetails, enquiryId, payload, req);
+      // we dont have to attach the admission fee...
+      // await this.admissionService.sendCreateAdmissionPaymentRequest(updatedEnquiryForFee, req.headers.authorization);
     }
+
+    // if(paymentFeeStatus == 'In Progress'){
+
+    //   // Update enquiry details with new transfer values for workflow and fee request
+    //   const updatedEnquiryForFee = {
+    //     ...enquiryDetails,
+    //     // Use school_location if provided, otherwise fall back to school, then existing value
+    //     school_location: payload.school_location || enquiryDetails.school_location,
+    //     brand: payload.brand,
+    //     board: payload.board,
+    //     grade: payload.grade,
+    //     course: payload.course,
+    //     shift: payload.shift,
+    //     stream: payload.stream,
+    //     academic_year: payload.academicYearId,
+    //     student_details: {
+    //       ...enquiryDetails.student_details,
+    //       grade: payload.grade
+    //     },
+    //     // Use guestHostSchool if provided (optional), otherwise fall back to guest_school
+    //     guest_student_details: (payload.guestHostSchool || payload.guest_school) ? {
+    //       location: payload.guestHostSchool || payload.guest_school
+    //     } : enquiryDetails.guest_student_details
+    //   };
+    //   await this.workflowService.triggerWorkflow(updatedEnquiryForFee, null, req);
+      
+    //   // Fix: Follow the pattern of sendCreateRegistrationFeeRequest to ensure fee_type is valid
+    //   await this.admissionRepository.updateByEnquiryId(new Types.ObjectId(enquiryId), {
+    //       admission_fee_request_triggered: false, 
+    //   });
+
+    //   // await this.admissionService.sendCreateAdmissionPaymentRequest(updatedEnquiryForFee, req.headers.authorization);
+    // }
   }
+
   async checkIfFeeAttached(payload: CheckFeePayload, req: any) {
     try {
       const enquiryDetails = await this.enquiryRepository.getByEnquiryNumber(
@@ -1461,6 +1496,9 @@ const feeData = await response.json();
 
   async getEnrollmentAndParentNumber(search?: string, req?: Request) {
     try {
+      console.log('data___' , this.configService.get<string>('ADMIN_PANEL_URL'))
+      console.log('req_data___', req)
+      console.log('search_string___', search)
       // Validate req is provided
       if (!req) {
         throw new HttpException(
@@ -1584,7 +1622,7 @@ const feeData = await response.json();
     }
   }
 
-  async getEnquiryDetail(enquiryNumber: string) {
+  private async getEnquiryDetail(enquiryNumber: string) {
     const enquiryDetails =
       await this.enquiryRepository.getByEnquiryNumber(enquiryNumber);
 
@@ -3800,10 +3838,13 @@ const feeData = await response.json();
           from: 'followUps',
           localField: '_id',
           foreignField: 'enquiry_id',
-          as: 'enquiryFollowUps',
+          as: 'lastFollowUps',
           pipeline: [
-            { $limit: 1 },
-            { $project: { _id: 1 } },
+            {
+              $sort: {
+                _id: -1,
+              },
+            },
           ],
         },
       },
@@ -3879,10 +3920,63 @@ const feeData = await response.json();
         },
       },
     );
-
-    // ============================================
-    // STEP 4: ADD ALL COMPUTED FIELDS (Keep as is)
-    // ============================================
+    pipeline.push(
+      {
+        $addFields: {
+          nextFollowUpDateComputed: {
+            $cond: {
+              if: {
+                $and: [
+                  { $eq: ['$enquiry_mode.value', 'Digital (website)'] },
+                  { $eq: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
+                ],
+              },
+              then: '$created_at',
+              else: {
+                $cond: {
+                  if: {
+                    $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0],
+                  },
+                  then: {
+                    $dateFromString: {
+                      dateString: {
+                        $arrayElemAt: [
+                          { $ifNull: ['$lastFollowUps.date', []] },
+                          0,
+                        ],
+                      },
+                    },
+                  },
+                  else: null,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          overdueDays: {
+            $cond: {
+              if: { $ne: ['$nextFollowUpDateComputed', null] },
+              then: {
+                $max: [
+                  {
+                    $dateDiff: {
+                      startDate: '$nextFollowUpDateComputed',
+                      endDate: '$$NOW',
+                      unit: 'day',
+                    },
+                  },
+                  0,
+                ],
+              },
+              else: null,
+            },
+          },
+        },
+      },
+    );
     pipeline.push({
       $addFields: {
         enquiryFor: {
@@ -3929,11 +4023,11 @@ const feeData = await response.json();
         },
         nextFollowUpDate: {
           $cond: {
-            if: { $eq: [{ $type: '$next_follow_up_at' }, 'date'] },
+            if: { $ne: ['$nextFollowUpDateComputed', null] },
             then: {
               $dateToString: {
                 format: '%d-%m-%Y',
-                date: '$next_follow_up_at',
+                date: '$nextFollowUpDateComputed',
               },
             },
             else: null,
@@ -4135,6 +4229,24 @@ const feeData = await response.json();
           $ifNull: ['$academic_year.value', null],
         },
         nextAction: 'NA',
+        overdueDays: {
+          $cond: {
+            if: { $eq: [{ $type: '$next_follow_up_at' }, 'date'] },
+            then: {
+              $max: [
+                {
+                  $dateDiff: {
+                    startDate: '$next_follow_up_at',
+                    endDate: '$$NOW',
+                    unit: 'day',
+                  },
+                },
+                0,
+              ],
+            },
+            else: null,
+          },
+        },
       },
     });
 
@@ -4208,9 +4320,10 @@ const feeData = await response.json();
         enquiry_number: 1,
         leadOwner: '$assigned_to',
         enquirySource: '$enquiry_source.value',
+        overdueDays: 1,
         isNewLead: {
           $cond: {
-            if: { $gt: [{ $size: '$enquiryFollowUps' }, 0] },
+            if: { $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
             then: false,
             else: true,
           },
@@ -5020,10 +5133,10 @@ const feeData = await response.json();
   }
 
   async transfer(
-    enquiryIds: string[],
-    schoolLocationDetails: MasterFieldDto,
+    payload: TransferEnquiryRequestDto,
     req: Request,
   ) {
+    const { enquiryIds, school_location: schoolLocationDetails } = payload;
     const schoolDetails = await this.mdmService.fetchDataFromAPI(
       `${MDM_API_URLS.SCHOOL}/${schoolLocationDetails.id}`,
     );
@@ -5113,6 +5226,12 @@ const feeData = await response.json();
           ) + 1;
       }
 
+      const enquiryDetails = await this.enquiryRepository.getByEnquiryNumber(req.body.enquiry_number);
+      const result = await this.processNewFees(enquiryDetails, req.body, req);
+      if (result?.status) {
+        return result;
+      }
+
       await Promise.all([
         ...(isAnyRoundRobinAssignedIndex > -1
           ? [
@@ -5137,6 +5256,18 @@ const feeData = await response.json();
                 id: schoolLocationDetails.id,
                 value: schoolLocationDetails.value,
               },
+              school: payload.school_location,
+              brand: payload.brand,
+              academic_year: payload.academicYearId,
+              board: payload.board,
+              grade: payload.grade,
+              course: payload.course,
+              shift: payload.shift,
+              stream: payload.stream,
+              'student_details.grade': payload.grade,
+              ...(payload.guestHostSchool
+                ? { guest_student_details: { location: payload.guestHostSchool } }
+                : {}),
             },
           );
         }),
@@ -5243,9 +5374,14 @@ const feeData = await response.json();
     });
     const promises = [];
     enquiryIds.forEach((enquiryId) => {
+        const created_by_name = reassignDetails.assigned_to?.trim()?.split(' ');
+        const firstName = created_by_name[0] || null;
+        const lastName = created_by_name.length > 1 ? created_by_name[created_by_name.length - 1] : null;
+        const parts = [firstName, lastName].filter(Boolean);
+
       promises.push(
         this.updateEnquiryData(enquiryId, {
-          assigned_to: reassignDetails.assigned_to,
+          assigned_to: parts.length > 0 ? parts.join(' ') : null,
           assigned_to_id: reassignDetails.assigned_to_id,
         }),
       );
@@ -6309,16 +6445,27 @@ const feeData = await response.json();
       tPlusFiveDate.setDate(new Date().getDate() + 5);
       tPlusFiveDate.setHours(23, 59, 59, 999);
 
-      const isAdmissionFeeReceivedLog = await this.enquiryLogRepository.getOne({
+      // const isAdmissionFeeReceivedLog = await this.enquiryLogRepository.getOne({
+      //   enquiry_id: enquiryDetails._id,
+      //   event: EEnquiryEvent.ADMISSION_FEE_RECEIVED,
+      // });
+
+      const isEnrGenerated = await this.admissionRepository.getOne({
         enquiry_id: enquiryDetails._id,
-        event: EEnquiryEvent.ADMISSION_FEE_RECEIVED,
       });
 
-      if (isAdmissionFeeReceivedLog) {
-        this.loggerService.log(`Admission fee receive log already exists !!`);
+      if (isEnrGenerated.enrolment_number) {
+        this.loggerService.log(`Enrollment number already exists !!`);
         this.loggerService.log(`Not proceeding to insert student details !!`);
         return true;
       }
+
+
+      // if (isAdmissionFeeReceivedLog) {
+      //   this.loggerService.log(`Admission fee receive log already exists !!`);
+      //   this.loggerService.log(`Not proceeding to insert student details !!`);
+      //   return true;
+      // }
 
       try {
         // Purposely placing the create log outside of Promise.all to handle the race condition
@@ -7901,41 +8048,51 @@ const feeData = await response.json();
 
   //! source wise conversion report - SANJEEV MAJHI
   async sourceWiseConversionReport(data) {
-      const {
-        start_date,
-        end_date,
-        filter_by, // "CC Only", "School Only", "All"
-        group_by,  // ["cluster", "school", "grade", "source", "sub_source"] - defines visible columns
-      } = data;
-  console.log(data);
-    // Parse dates from DD-MM-YYYY format
-    const parseDate = (dateStr: string) => {
-      const [day, month, year] = dateStr.split('-');
-      return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
-    };
+    const {
+      start_date,
+      end_date,
+      filter_by = 'All',
+      group_by = ['cluster', 'school', 'grade', 'source', 'sub_source'],
+    } = data;
+
     // Build match conditions
-    const matchConditions: any = {
-      enquiry_date: {
-        $gte: parseDate(start_date),
-        $lte: parseDate(end_date)
-      }
-    };
-    // Apply filter_by logic (CC Only, School Only, All)
-    if (filter_by === "CC Only") {
-      // Filter enquiries handled by Call Center
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Phone Call", "Phone Call (IVR) -Toll free", "Phone Call -School"]
-      };
-    } else if (filter_by === "School Only") {
-      // Filter enquiries handled by School directly
-      matchConditions["enquiry_mode.value"] = {
-        $in: ["Walkin", "Walkin (VMS)"]
+    const matchConditions: any = {};
+
+    // Use moment for consistent date parsing
+    const parsedStartDate = start_date
+      ? moment(start_date, 'DD-MM-YYYY').toDate()
+      : null;
+    const parsedEndDate = end_date
+      ? moment(end_date, 'DD-MM-YYYY').endOf('day').toDate()
+      : null;
+
+    // Only add date filter if both dates are provided
+    if (parsedStartDate && parsedEndDate) {
+      matchConditions.enquiry_date = {
+        $gte: parsedStartDate,
+        $lte: parsedEndDate,
       };
     }
+
+    // Apply filter_by logic (CC Only, School Only, All)
+    if (filter_by === 'CC Only') {
+      matchConditions['enquiry_mode.value'] = {
+        $in: [
+          'Phone Call',
+          'Phone Call (IVR) -Toll free',
+          'Phone Call -School',
+        ],
+      };
+    } else if (filter_by === 'School Only') {
+      matchConditions['enquiry_mode.value'] = {
+        $in: ['Walkin', 'Walkin (VMS)'],
+      };
+    }
+
     const pipeline: any[] = [
       // 1️⃣ MATCH FILTERS
       {
-        $match: matchConditions
+        $match: Object.keys(matchConditions).length > 0 ? matchConditions : {},
       },
       {
         $lookup: {
@@ -7952,289 +8109,557 @@ const feeData = await response.json();
           ],
         },
       },
-      // 2️⃣ ADD COMPUTED FIELDS FOR STAGE TRACKING
+      // 2️⃣ ADD COMPUTED FIELDS FOR STAGE TRACKING AND DATA STANDARDIZATION
       {
         $addFields: {
-          // Check if "Enquiry" stage exists (RL)
+          // Standardize source - comprehensive normalization
+          normalized_source: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$enquiry_source.value', null] },
+                  { $eq: ['$enquiry_source.value', ''] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_source.value', ''] } } }, 'N/A'] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_source.value', ''] } } }, 'NA'] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_source.value', ''] } } }, ''] },
+                ],
+              },
+              'NA',
+              {
+                $trim: {
+                  input: {
+                    // Step 1: Replace multiple spaces with single space
+                    $replaceAll: {
+                      input: {
+                        $replaceAll: {
+                          input: {
+                            $replaceAll: {
+                              input: {
+                                // Step 2: Normalize spaces around forward slash (/ to /)
+                                $replaceAll: {
+                                  input: {
+                                    $replaceAll: {
+                                      input: {
+                                        $replaceAll: {
+                                          input: { $ifNull: ['$enquiry_source.value', 'NA'] },
+                                          find: ' / ',
+                                          replacement: '/',
+                                        },
+                                      },
+                                      find: ' /',
+                                      replacement: '/',
+                                    },
+                                  },
+                                  find: '/ ',
+                                  replacement: '/',
+                                },
+                              },
+                              find: '   ',
+                              replacement: ' ',
+                            },
+                          },
+                          find: '  ',
+                          replacement: ' ',
+                        },
+                      },
+                      find: '  ',
+                      replacement: ' ',
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          
+          // Standardize sub-source - comprehensive normalization
+          normalized_sub_source: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$enquiry_sub_source.value', null] },
+                  { $eq: ['$enquiry_sub_source.value', ''] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_sub_source.value', ''] } } }, 'N/A'] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_sub_source.value', ''] } } }, 'NA'] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$enquiry_sub_source.value', ''] } } }, ''] },
+                ],
+              },
+              'NA',
+              {
+                $trim: {
+                  input: {
+                    // Step 1: Replace multiple spaces with single space
+                    $replaceAll: {
+                      input: {
+                        $replaceAll: {
+                          input: {
+                            $replaceAll: {
+                              input: {
+                                // Step 2: Normalize spaces around forward slash (/ to /)
+                                $replaceAll: {
+                                  input: {
+                                    $replaceAll: {
+                                      input: {
+                                        $replaceAll: {
+                                          input: { $ifNull: ['$enquiry_sub_source.value', 'NA'] },
+                                          find: ' / ',
+                                          replacement: '/',
+                                        },
+                                      },
+                                      find: ' /',
+                                      replacement: '/',
+                                    },
+                                  },
+                                  find: '/ ',
+                                  replacement: '/',
+                                },
+                              },
+                              find: '   ',
+                              replacement: ' ',
+                            },
+                          },
+                          find: '  ',
+                          replacement: ' ',
+                        },
+                      },
+                      find: '  ',
+                      replacement: ' ',
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          
+          // Standardize grade names (Grade 2 vs Grade II, etc.)
+          normalized_grade: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ['$student_details.grade.value', null] },
+                  { $eq: ['$student_details.grade.value', ''] },
+                  { $eq: [{ $trim: { input: { $ifNull: ['$student_details.grade.value', ''] } } }, ''] },
+                ],
+              },
+              'NA',
+              {
+                $trim: {
+                  input: {
+                    $replaceAll: {
+                      input: {
+                        $replaceAll: {
+                          input: {
+                            $replaceAll: {
+                              input: {
+                                $replaceAll: {
+                                  input: {
+                                    $replaceAll: {
+                                      input: {
+                                        $replaceAll: {
+                                          input: {
+                                            $replaceAll: {
+                                              input: {
+                                                $replaceAll: {
+                                                  input: {
+                                                    $replaceAll: {
+                                                      input: {
+                                                        $replaceAll: {
+                                                          input: { $ifNull: ['$student_details.grade.value', 'NA'] },
+                                                          find: 'Grade X',
+                                                          replacement: 'Grade 10',
+                                                        },
+                                                      },
+                                                      find: 'Grade IX',
+                                                      replacement: 'Grade 9',
+                                                    },
+                                                  },
+                                                  find: 'Grade VIII',
+                                                  replacement: 'Grade 8',
+                                                },
+                                              },
+                                              find: 'Grade VII',
+                                              replacement: 'Grade 7',
+                                            },
+                                          },
+                                          find: 'Grade VI',
+                                          replacement: 'Grade 6',
+                                        },
+                                      },
+                                      find: 'Grade V',
+                                      replacement: 'Grade 5',
+                                    },
+                                  },
+                                  find: 'Grade IV',
+                                  replacement: 'Grade 4',
+                                },
+                              },
+                              find: 'Grade III',
+                              replacement: 'Grade 3',
+                            },
+                          },
+                          find: 'Grade II',
+                          replacement: 'Grade 2',
+                        },
+                      },
+                      find: 'Grade I',
+                      replacement: 'Grade 1',
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          
+          // RL - Any enquiry that has at least started the enquiry process
           has_enquiry_stage: {
             $anyElementTrue: {
               $map: {
-                input: "$enquiry_stages",
-                as: "stage",
+                input: '$enquiry_stages',
+                as: 'stage',
                 in: {
                   $and: [
-                    { $eq: ["$$stage.stage_name", "Enquiry"] },
+                    { $eq: ['$$stage.stage_name', 'Enquiry'] },
                     {
                       $or: [
-                        { $eq: ["$$stage.status", "Completed"] },
-                        { $eq: ["$$stage.status", "In Progress"] }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          has_appoimnet: {
-            $anyElementTrue: {
-              $map: {
-                input: "$enquiry_stages",
-                as: "stage",
-                in: {
-                  $and: [
-                    { $eq: ["$$stage.stage_name", "School visit"] },
-                    {
-                      $or: [
-                        { $eq: ["$$stage.status", "Completed"] },
-                        { $eq: ["$$stage.status", "In Progress"] },
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          // Check if "School visit" stage exists
-          has_walkeding: {
-            $anyElementTrue: {
-              $map: {
-                input: "$enquiry_stages",
-                as: "stage",
-                in: {
-                  $and: [
-                    {
-                      $or: [
-                        { $eq: ["$$stage.stage_name", "School visit"] },
-                        { $eq: ["$$stage.stage_name", "Academic Kit Selling"] },
-                      ]
+                        { $eq: ['$$stage.status', 'Completed'] },
+                        { $eq: ['$$stage.status', 'In Progress'] },
+                      ],
                     },
-                    { $eq: ["$$stage.status", "Completed"] }
-                  ]
-                }
-              }
-            }
+                  ],
+                },
+              },
+            },
           },
-          // Check if "Admitted" stage exists
+          
+          // Appointment - School visit stage in progress or completed
+          has_appointment: {
+            $anyElementTrue: {
+              $map: {
+                input: '$enquiry_stages',
+                as: 'stage',
+                in: {
+                  $and: [
+                    { $eq: ['$$stage.stage_name', 'School visit'] },
+                    {
+                      $or: [
+                        { $eq: ['$$stage.status', 'Completed'] },
+                        { $eq: ['$$stage.status', 'In Progress'] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          
+          // Walk-in - School visit OR Academic Kit Selling completed
+          has_walkin: {
+            $anyElementTrue: {
+              $map: {
+                input: '$enquiry_stages',
+                as: 'stage',
+                in: {
+                  $and: [
+                    {
+                      $or: [
+                        { $eq: ['$$stage.stage_name', 'School visit'] },
+                        { $eq: ['$$stage.stage_name', 'Academic Kit Selling'] },
+                      ],
+                    },
+                    { $eq: ['$$stage.status', 'Completed'] },
+                  ],
+                },
+              },
+            },
+          },
+          
+          // Admission - Admitted or Provisional Approval stage
           has_admission_stage: {
             $anyElementTrue: {
               $map: {
-                input: "$enquiry_stages",
-                as: "stage",
+                input: '$enquiry_stages',
+                as: 'stage',
                 in: {
                   $and: [
-                    { $eq: ["$$stage.stage_name", "Admitted or Provisional Approval"] },
+                    {
+                      $eq: [
+                        '$$stage.stage_name',
+                        'Admitted or Provisional Approval',
+                      ],
+                    },
                     {
                       $or: [
-                        { $eq: ["$$stage.status", "Provisional Admission"] },
-                        { $eq: ["$$stage.status", "Admitted"] }
+                        { $eq: ['$$stage.status', 'Provisional Admission'] },
+                        { $eq: ['$$stage.status', 'Admitted'] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          
+          // Get the most recent enquiry log status for Lead Close Status check
+          latest_log_status: {
+            $let: {
+              vars: {
+                closedLog: {
+                  $filter: {
+                    input: { $ifNull: ['$enquiryLogs', []] },
+                    as: 'log',
+                    cond: {
+                      $and: [
+                        { $eq: ['$$log.event', 'Enquiry closed'] },
+                        { $ne: ['$$log.log_data.status', null] },
+                        { $ne: ['$$log.log_data.status', ''] }
                       ]
-                    }
-                  ]
-                }
-              }
-            }
+                    },
+                  },
+                },
+              },
+              in: {
+                $cond: {
+                  if: { $gt: [{ $size: '$$closedLog' }, 0] },
+                  then: {
+                    $arrayElemAt: ['$$closedLog.log_data.status', 0],
+                  },
+                  else: null,
+                },
+              },
+            },
           },
-          // Check if any enquiryLog has status "Admission Granted"
-          has_qualifying_log_status: {
-            $anyElementTrue: {
-              $map: {
-                input: "$enquiryLogs",
-                as: "log",
-                in: {
-                  $or: [
-                    { $eq: ["$$log.log_data.status", "Admission Granted"] },
-                    { $eq: ["$$log.log_data.status", "Not Interested"] },
-                    { $eq: ["$$log.log_data.status", "Multiple contacts not reachable"] },
-                    { $eq: ["$$log.log_data.status", "Admission for AY Closed"] }
-                  ]
-                }
-              }
-            }
+          
+          // Check if student first name is missing or NA (including single character names like 'A')
+          missing_first_name: {
+            $or: [
+              { $eq: ['$student_details.first_name', ''] },
+              { $eq: ['$student_details.first_name', null] },
+              { $eq: ['$student_details.first_name', 'NA'] },
+              { $eq: ['$student_details.first_name', 'N/A'] },
+              { $lte: [{ $strLenCP: { $ifNull: ['$student_details.first_name', ''] } }, 1] },
+            ],
           },
-          // Check if status is Open AND has both first_name and last_name
-          is_open_with_names: {
-            $and: [
-              { $eq: ["$status", "Open"] },
-              { $ne: ["$student_details.first_name", ""] },
-              { $ne: ["$student_details.last_name", ""] },
-              { $ne: ["$student_details.first_name", null] },
-              { $ne: ["$student_details.last_name", null] }
-            ]
-          }
-        }
+          
+          // Check if student last name is missing or NA (including placeholder names like 'AAA')
+          missing_last_name: {
+            $or: [
+              { $eq: ['$student_details.last_name', ''] },
+              { $eq: ['$student_details.last_name', null] },
+              { $eq: ['$student_details.last_name', 'NA'] },
+              { $eq: ['$student_details.last_name', 'N/A'] },
+              { $eq: ['$student_details.last_name', 'AAA'] },
+            ],
+          },
+        },
       },
+      
       // 2.5️⃣ ADD FINAL RL and QL FLAGS
-    {
+      {
         $addFields: {
+          // RL = All enquiries that reached "Enquiry" stage
           is_rl: {
             $or: [
-              { $eq: [{ $arrayElemAt: ["$enquiry_stages.status", 0] }, "In Progress"] },
-              { $eq: [{ $arrayElemAt: ["$enquiry_stages.status", 0] }, "Completed"] },
-            ]
+              {
+                $eq: [
+                  { $arrayElemAt: ['$enquiry_stages.status', 0] },
+                  'In Progress',
+                ],
+              },
+              {
+                $eq: [
+                  { $arrayElemAt: ['$enquiry_stages.status', 0] },
+                  'Completed',
+                ],
+              },
+            ],
           },
+          
+          // QL = RL MINUS exclusions based on Lead Close Status AND missing student names
           is_ql: {
-            $or: [
-              "$has_qualifying_log_status",
-              "$is_open_with_names"
-            ]
-          }
-        }
+            $and: [
+              // Must be an RL
+              {
+                $or: [
+                  {
+                    $eq: [
+                      { $arrayElemAt: ['$enquiry_stages.status', 0] },
+                      'In Progress',
+                    ],
+                  },
+                  {
+                    $eq: [
+                      { $arrayElemAt: ['$enquiry_stages.status', 0] },
+                      'Completed',
+                    ],
+                  },
+                ],
+              },
+              // Exclude based on Lead Close Status
+              {
+                $not: {
+                  $in: [
+                    '$latest_log_status',
+                    ['Spam', 'Duplicate', 'Admission Denied'],
+                  ],
+                },
+              },
+              // Exclude if BOTH first name AND last name are missing/NA/invalid when status is Open
+              {
+                $not: {
+                  $and: [
+                    { $ne: ['$status', 'Closed'] },
+                    '$missing_first_name',
+                    '$missing_last_name',
+                  ],
+                },
+              },
+            ],
+          },
+        },
       },
-      // 3️⃣ GROUP BY DIMENSIONS (Based on group_by array)
+      
+      // 3️⃣ GROUP BY DIMENSIONS (Based on group_by array) - Using normalized fields
       {
         $group: {
-          _id: this.buildGroupByExpression(group_by),
-          // Store school_id for cluster lookup
-          school_id: { $first: "$school_location.id" },
+          _id: this.buildGroupByExpressionNormalized(group_by),
+          school_id: { $first: '$school_location.id' },
+          
           // RL = All enquiries that reached "Enquiry" stage
           total_raw_leads: {
-            $sum: { $cond: ["$is_rl", 1, 0] }
+            $sum: { $cond: ['$is_rl', 1, 0] },
           },
-          // QL =
+          
+          // QL = RL minus exclusions
           total_qualified_leads: {
-            $sum: { $cond: ["$is_ql", 1, 0] }
+            $sum: { $cond: ['$is_ql', 1, 0] },
           },
+          
           // Appointment = School visit stage reached
           total_appointment: {
-            $sum: { $cond: ["$has_appoimnet", 1, 0] }
+            $sum: { $cond: ['$has_appointment', 1, 0] },
           },
-          // Walk-in = 0 (placeholder as no specific walk-in stage exists)
+          
+          // Walk-in = School visit OR Academic Kit Selling completed
           total_walkin: {
-            $sum: { $cond: ["$has_walkeding", 1, 0] }
+            $sum: { $cond: ['$has_walkin', 1, 0] },
           },
+          
           // Admission
           total_admission: {
-            $sum: { $cond: ["$has_admission_stage", 1, 0] }
-          }
-        }
+            $sum: { $cond: ['$has_admission_stage', 1, 0] },
+          },
+        },
       },
+      
       // 4️⃣ PROJECT WITH CALCULATIONS
       {
         $project: {
           _id: 0,
           school_id: 1,
-          school: { $ifNull: ["$_id.school", "N/A"] },
-          grade: { $ifNull: ["$_id.grade", "N/A"] },
-          source: { $ifNull: ["$_id.source", "N/A"] },
-          sub_source: { $ifNull: ["$_id.sub_source", "N/A"] },
+          school: { $ifNull: ['$_id.school', 'NA'] },
+          grade: { $ifNull: ['$_id.grade', 'NA'] },
+          source: { $ifNull: ['$_id.source', 'NA'] },
+          sub_source: { $ifNull: ['$_id.sub_source', 'NA'] },
+          
           // Metrics
-          RL: "$total_raw_leads",
-          QL: "$total_qualified_leads",
-          Appt: "$total_appointment",
-          Walkin: "$total_walkin",
-          Admission: "$total_admission",
+          RL: '$total_raw_leads',
+          QL: '$total_qualified_leads',
+          Appt: '$total_appointment',
+          Walkin: '$total_walkin',
+          Admission: '$total_admission',
+          
+          // Conversion percentages (as decimals for proper Excel formatting)
           rl_to_ql_percent: {
             $cond: [
-              { $gt: ["$total_raw_leads", 0] },
+              { $gt: ['$total_raw_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_qualified_leads", "$total_raw_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_qualified_leads', '$total_raw_leads'],
               },
-              0
-            ]
+              0,
+            ],
           },
           ql_to_appt_percent: {
             $cond: [
-              { $gt: ["$total_qualified_leads", 0] },
+              { $gt: ['$total_qualified_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_appointment", "$total_qualified_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_appointment', '$total_qualified_leads'],
               },
-              0
-            ]
+              0,
+            ],
           },
           appt_to_walkin_percent: {
             $cond: [
-              { $gt: ["$total_appointment", 0] },
+              { $gt: ['$total_appointment', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_walkin", "$total_appointment"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_walkin', '$total_appointment'],
               },
-              0
-            ]
+              0,
+            ],
           },
           walkin_to_admission_percent: {
             $cond: [
-              { $gt: ["$total_walkin", 0] },
+              { $gt: ['$total_walkin', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_admission", "$total_walkin"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_admission', '$total_walkin'],
               },
-              null  // Will be converted to "#DIV/0!"
-            ]
+              null,
+            ],
           },
           rl_to_walkin_percent: {
             $cond: [
-              { $gt: ["$total_raw_leads", 0] },
+              { $gt: ['$total_raw_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_walkin", "$total_raw_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_walkin', '$total_raw_leads'],
               },
-              0
-            ]
+              0,
+            ],
           },
           rl_to_admission_percent: {
             $cond: [
-              { $gt: ["$total_raw_leads", 0] },
+              { $gt: ['$total_raw_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_admission", "$total_raw_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_admission', '$total_raw_leads'],
               },
-              0
-            ]
+              0,
+            ],
           },
           ql_to_walkin_percent: {
             $cond: [
-              { $gt: ["$total_qualified_leads", 0] },
+              { $gt: ['$total_qualified_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_walkin", "$total_qualified_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_walkin', '$total_qualified_leads'],
               },
-              0
-            ]
+              0,
+            ],
           },
           ql_to_admission_percent: {
             $cond: [
-              { $gt: ["$total_qualified_leads", 0] },
+              { $gt: ['$total_qualified_leads', 0] },
               {
-                $round: [
-                  { $multiply: [{ $divide: ["$total_admission", "$total_qualified_leads"] }, 100] },
-                  0
-                ]
+                $divide: ['$total_admission', '$total_qualified_leads'],
               },
-              0
-            ]
-          }
-        }
+              0,
+            ],
+          },
+        },
       },
+      
       // 5️⃣ SORT (Dynamic based on group_by)
       {
-        $sort: this.buildSortExpression(group_by)
-      }
+        $sort: this.buildSortExpression(group_by),
+      },
     ];
-    console.log('pipline--->',JSON.stringify(pipeline));
+
+    console.log('pipeline--->', JSON.stringify(pipeline));
     const reportData = await this.enquiryRepository.aggregate(pipeline);
     console.log('reportData--->', reportData[0]);
+
     if (!reportData.length) {
       throw new HttpException(
         'No data found for the provided filters',
         HttpStatus.NOT_FOUND,
       );
     }
+
     const totals = {
       RL: reportData.reduce((sum, row) => sum + (row.RL || 0), 0),
       QL: reportData.reduce((sum, row) => sum + (row.QL || 0), 0),
@@ -8242,18 +8667,21 @@ const feeData = await response.json();
       Walkin: reportData.reduce((sum, row) => sum + (row.Walkin || 0), 0),
       Admission: reportData.reduce((sum, row) => sum + (row.Admission || 0), 0),
     };
+
     const totalPercentages = {
-      rl_to_ql: totals.RL > 0 ? Math.round((totals.QL / totals.RL) * 100) : 0,
-      ql_to_appt: totals.QL > 0 ? Math.round((totals.Appt / totals.QL) * 100) : 0,
-      appt_to_walkin: totals.Appt > 0 ? Math.round((totals.Walkin / totals.Appt) * 100) : 0,
-      walkin_to_admission: totals.Walkin > 0 ? Math.round((totals.Admission / totals.Walkin) * 100) : null,
-      rl_to_admission: totals.RL > 0 ? Math.round((totals.Admission / totals.RL) * 100) : 0,
-      rl_to_walkin: totals.RL > 0 ? Math.round((totals.Walkin / totals.RL) * 100) : 0,
-      ql_to_admission: totals.QL > 0 ? Math.round((totals.Admission / totals.QL) * 100) : 0,
-      ql_to_walkin: totals.QL > 0 ? Math.round((totals.Walkin / totals.QL) * 100) : 0,
+      rl_to_ql: totals.RL > 0 ? (totals.QL / totals.RL) : 0,
+      ql_to_appt: totals.QL > 0 ? (totals.Appt / totals.QL) : 0,
+      appt_to_walkin: totals.Appt > 0 ? (totals.Walkin / totals.Appt) : 0,
+      walkin_to_admission: totals.Walkin > 0 ? (totals.Admission / totals.Walkin) : null,
+      rl_to_admission: totals.RL > 0 ? (totals.Admission / totals.RL) : 0,
+      rl_to_walkin: totals.RL > 0 ? (totals.Walkin / totals.RL) : 0,
+      ql_to_admission: totals.QL > 0 ? (totals.Admission / totals.QL) : 0,
+      ql_to_walkin: totals.QL > 0 ? (totals.Walkin / totals.QL) : 0,
     };
+
     // Create the Total row
     const totalRow: any = {};
+    
     // Add dimension columns based on group_by array
     if (group_by.includes('cluster')) {
       totalRow['Cluster'] = 'Total';
@@ -8270,32 +8698,40 @@ const feeData = await response.json();
     if (group_by.includes('sub_source')) {
       totalRow['Sub-Source'] = '';
     }
+
     // Add total metrics
     totalRow['RL'] = totals.RL;
     totalRow['QL'] = totals.QL;
     totalRow['Appt'] = totals.Appt;
     totalRow['Walkin'] = totals.Walkin;
     totalRow['Admission'] = totals.Admission;
-    // Add total conversion percentages
-    totalRow['RL to QL %'] = `${totalPercentages.rl_to_ql}%`;
-    totalRow['QL to Appt %'] = `${totalPercentages.ql_to_appt}%`;
-    totalRow['Appt to Walkin%'] = `${totalPercentages.appt_to_walkin}%`;
-    totalRow['Walkin to Admission %'] = totalPercentages.walkin_to_admission === null ? '#DIV/0!' : `${totalPercentages.walkin_to_admission}%`;
-    totalRow['RL to Admission %'] = `${totalPercentages.rl_to_admission}%`;
-    totalRow['RL to Walkin%'] = `${totalPercentages.rl_to_walkin}%`;
-    totalRow['QL to Admission%'] = `${totalPercentages.ql_to_admission}%`;
-    totalRow['QL to Walkin%'] = `${totalPercentages.ql_to_walkin}%`;
+
+    // Add total conversion percentages (as decimals for proper % formatting in Excel)
+    totalRow['RL to QL %'] = totalPercentages.rl_to_ql;
+    totalRow['QL to Appt %'] = totalPercentages.ql_to_appt;
+    totalRow['Appt to Walkin%'] = totalPercentages.appt_to_walkin;
+    totalRow['Walkin to Admission %'] = totalPercentages.walkin_to_admission;
+    totalRow['RL to Admission %'] = totalPercentages.rl_to_admission;
+    totalRow['RL to Walkin%'] = totalPercentages.rl_to_walkin;
+    totalRow['QL to Admission%'] = totalPercentages.ql_to_admission;
+    totalRow['QL to Walkin%'] = totalPercentages.ql_to_walkin;
+
     // Fetch cluster information from MDM service if cluster is in group_by
-    let schoolClusterMap = {};
+    const schoolClusterMap = {};
     if (group_by.includes('cluster')) {
-      const schoolIds = [...new Set(reportData.map((e: any) => e.school_id).filter(Boolean))];
+      const schoolIds = [
+        ...new Set(reportData.map((e: any) => e.school_id).filter(Boolean)),
+      ];
       if (schoolIds.length > 0) {
         try {
           const schoolDetails = await this.mdmService.postDataToAPI(
             MDM_API_URLS.SEARCH_SCHOOL,
             { operator: `school_id In (${schoolIds.toString()})` },
           );
-          schoolDetails?.data.schools?.forEach((school: any) => {
+
+          const mdmSchools: any[] = schoolDetails?.data?.schools ?? [];
+
+          mdmSchools.forEach((school: any) => {
             schoolClusterMap[school.school_id] = school?.cluster_name || 'NA';
           });
         } catch (error) {
@@ -8303,9 +8739,11 @@ const feeData = await response.json();
         }
       }
     }
+
     // Format data for CSV based on visible columns (group_by)
     const formattedData = reportData.map((row: any) => {
       const formattedRow: any = {};
+      
       // Add columns based on group_by array (these are the VISIBLE columns)
       if (group_by.includes('cluster')) {
         formattedRow['Cluster'] = schoolClusterMap[row.school_id] || 'NA';
@@ -8322,26 +8760,29 @@ const feeData = await response.json();
       if (group_by.includes('sub_source')) {
         formattedRow['Sub-Source'] = row.sub_source || 'NA';
       }
+
       // Add metrics (always visible)
       formattedRow['RL'] = row.RL || 0;
       formattedRow['QL'] = row.QL || 0;
       formattedRow['Appt'] = row.Appt || 0;
       formattedRow['Walkin'] = row.Walkin || 0;
       formattedRow['Admission'] = row.Admission || 0;
-      // Add conversion percentages (always visible)
-      formattedRow['RL to QL %'] = row.rl_to_ql_percent ? `${row.rl_to_ql_percent}%` : '0%';
-      formattedRow['QL to Appt %'] = row.ql_to_appt_percent ? `${row.ql_to_appt_percent}%` : '0%';
-      formattedRow['Appt to Walkin%'] = row.appt_to_walkin_percent ? `${row.appt_to_walkin_percent}%` : '0%';
-      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent === null
-        ? '#DIV/0!'
-        : `${row.walkin_to_admission_percent || 0}%`;
-      formattedRow['RL to Admission %'] = row.rl_to_admission_percent ? `${row.rl_to_admission_percent}%` : '0%';
-      formattedRow['RL to Walkin%'] = row.rl_to_walkin_percent ? `${row.rl_to_walkin_percent}%` : '0%';
-      formattedRow['QL to Admission%'] = row.ql_to_admission_percent ? `${row.ql_to_admission_percent}%` : '0%';
-      formattedRow['QL to Walkin%'] = row.ql_to_walkin_percent ? `${row.ql_to_walkin_percent}%` : '0%';
+
+      // Add conversion percentages (as decimals for Excel % formatting)
+      formattedRow['RL to QL %'] = row.rl_to_ql_percent || 0;
+      formattedRow['QL to Appt %'] = row.ql_to_appt_percent || 0;
+      formattedRow['Appt to Walkin%'] = row.appt_to_walkin_percent || 0;
+      formattedRow['Walkin to Admission %'] = row.walkin_to_admission_percent;
+      formattedRow['RL to Admission %'] = row.rl_to_admission_percent || 0;
+      formattedRow['RL to Walkin%'] = row.rl_to_walkin_percent || 0;
+      formattedRow['QL to Admission%'] = row.ql_to_admission_percent || 0;
+      formattedRow['QL to Walkin%'] = row.ql_to_walkin_percent || 0;
+
       return formattedRow;
     });
+
     formattedData.unshift(totalRow);
+
     // Build CSV fields based on group_by (visible columns only)
     const fields = [];
     if (group_by.includes('cluster')) fields.push('Cluster');
@@ -8349,53 +8790,130 @@ const feeData = await response.json();
     if (group_by.includes('grade')) fields.push('Grade');
     if (group_by.includes('source')) fields.push('Source');
     if (group_by.includes('sub_source')) fields.push('Sub-Source');
+
     // Add metric fields (always visible)
     fields.push(
-      'RL', 'QL', 'Appt', 'Walkin', 'Admission',
-      'RL to QL %', 'QL to Appt %', 'Appt to Walkin%', 'Walkin to Admission %',
-      'RL to Admission %', 'RL to Walkin%', 'QL to Admission%', 'QL to Walkin%'
+      'RL',
+      'QL',
+      'Appt',
+      'Walkin',
+      'Admission',
+      'RL to QL %',
+      'QL to Appt %',
+      'Appt to Walkin%',
+      'Walkin to Admission %',
+      'RL to Admission %',
+      'RL to Walkin%',
+      'QL to Admission%',
+      'QL to Walkin%',
     );
-    // Generate filename with timestamp
-    const date = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+    // Generate filename with timestamp - Updated format: SourceWise-Conversion-Report
+    const date = new Date().toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+    });
     const [month, day, year] = date.split(',')[0].split('/');
-    const timestamp = date.split(',')[1].trimStart().split(' ')[0].split(':').join('');
-    const filename = `Source-Wise-Conversion-Report-${day}-${month}-${year}-${timestamp}`;
-    // Generate CSV
-    const generatedCSV: any = await this.csvService.generateCsv(formattedData, fields, filename);
-    // Create file from buffer
-    const file: Express.Multer.File = await this.fileService.createFileFromBuffer(
-      Buffer.from(generatedCSV.csv),
+    const timestamp = date
+      .split(',')[1]
+      .trimStart()
+      .split(' ')[0]
+      .split(':')
+      .join('');
+    const filename = `SourceWise-Conversion-Report-${day}-${month}-${year}-${timestamp}`;
+
+    // Generate CSV with percentage formatting
+    const generatedCSV: any = await this.csvService.generateCsvWithPercentages(
+      formattedData,
+      fields,
       filename,
-      'text/csv',
+      [
+        'RL to QL %',
+        'QL to Appt %',
+        'Appt to Walkin%',
+        'Walkin to Admission %',
+        'RL to Admission %',
+        'RL to Walkin%',
+        'QL to Admission%',
+        'QL to Walkin%',
+      ]
     );
+
+    // Create file from buffer
+    const file: Express.Multer.File =
+      await this.fileService.createFileFromBuffer(
+        Buffer.from(generatedCSV.csv),
+        filename,
+        'text/csv',
+      );
+
     // Upload to storage
     await this.setFileUploadStorage();
-    const uploadedFileName = await this.storageService.uploadFile(file, filename);
+    const uploadedFileName = await this.storageService.uploadFile(
+      file,
+      filename,
+    );
     const bucketName = this.configService.get<string>('BUCKET_NAME');
+
     if (!uploadedFileName) {
       throw new HttpException(
         'Something went wrong while uploading file!',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+
     // Generate signed URL
-    const signedUrl = await this.storageService.getSignedUrl(bucketName, uploadedFileName, false);
+    const signedUrl = await this.storageService.getSignedUrl(
+      bucketName,
+      uploadedFileName,
+      false,
+    );
+
     return {
       url: signedUrl,
       fileName: uploadedFileName,
       totalRecords: reportData.length,
       filters_applied: {
-        date_range: `${start_date} to ${end_date}`,
+        date_range:
+          start_date && end_date ? `${start_date} to ${end_date}` : 'All dates',
         filter_by,
-        visible_columns: group_by
+        visible_columns: group_by,
       },
       summary: {
         total_rl: reportData.reduce((sum, row) => sum + (row.RL || 0), 0),
         total_ql: reportData.reduce((sum, row) => sum + (row.QL || 0), 0),
-        total_appointments: reportData.reduce((sum, row) => sum + (row.Appt || 0), 0),
-        total_admissions: reportData.reduce((sum, row) => sum + (row.Admission || 0), 0),
-      }
+        total_appointments: reportData.reduce(
+          (sum, row) => sum + (row.Appt || 0),
+          0,
+        ),
+        total_admissions: reportData.reduce(
+          (sum, row) => sum + (row.Admission || 0),
+          0,
+        ),
+      },
     };
+  }
+
+  // Helper method to build normalized group by expression
+  private buildGroupByExpressionNormalized(group_by: string[]) {
+    const groupExpr: any = {};
+    
+    if (group_by.includes('cluster')) {
+      groupExpr.cluster = '$school_location.cluster';
+    }
+    if (group_by.includes('school')) {
+      groupExpr.school = '$school_location.value';
+    }
+    if (group_by.includes('grade')) {
+      groupExpr.grade = '$normalized_grade'; // Use normalized grade
+    }
+    if (group_by.includes('source')) {
+      groupExpr.source = '$normalized_source'; // Use normalized source
+    }
+    if (group_by.includes('sub_source')) {
+      groupExpr.sub_source = '$normalized_sub_source'; // Use normalized sub_source
+    }
+    
+    return groupExpr;
   }
 
 
@@ -10290,33 +10808,15 @@ const feeData = await response.json();
   }
   //! Source Conversion Report - Abhishek
   async sourceWiseInquiryStatusReport_BA(filters: any = null): Promise<any[]> {
-    // helper to parse DD-MM-YYYY -> Date
-    const toDate = (s?: string | null): Date | null => {
-      if (!s) return null;
-      const str = String(s).trim();
-      if (!str) return null;
-
-      // dd-mm-yyyy
-      const parts = str.split("-");
-      if (parts.length === 3 && parts[0].length <= 2) {
-        const [d, m, y] = parts;
-        const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00.000Z`;
-        const dt = new Date(iso);
-        return isNaN(dt.getTime()) ? null : dt;
-      }
-      // fallback
-      const dt = new Date(str);
-      return isNaN(dt.getTime()) ? null : dt;
-    };
     // Build initial matchConditions if filters provided
     const matchConditions: any = {};
 
     if (filters) {
       const { start_date, end_date, filter_by } = filters;
 
-      const startDt = toDate(start_date || null);
-      const endDt = toDate(end_date || null);
-      if (endDt) endDt.setUTCHours(23, 59, 59, 999);
+      // Use moment for consistent date parsing (same as admissionEnquiryReport)
+      const startDt = start_date ? moment(start_date, 'DD-MM-YYYY').toDate() : null;
+      const endDt = end_date ? moment(end_date, 'DD-MM-YYYY').endOf('day').toDate() : null;
 
       // Attach Date filter
       if (startDt || endDt) {
@@ -10392,18 +10892,62 @@ const feeData = await response.json();
     }
 
     pipeline.push(
-      { $lookup: { from: 'admission', localField: '_id', foreignField: 'enquiry_id', as: 'admissionDetails' } },
+      // Admission lookup
+      {
+        $lookup: {
+          from: 'admission',
+          localField: '_id',
+          foreignField: 'enquiry_id',
+          as: 'admissionDetails',
+        },
+      },
+
+      // EnquiryLogs lookup - using comprehensive event filtering from admissionEnquiryReport
       {
         $lookup: {
           from: 'enquiryLogs',
           localField: '_id',
           foreignField: 'enquiry_id',
           as: 'enquiryLogs',
-          pipeline: [{ $sort: { _id: -1 } }, { $project: { event: 1, created_at: 1, log_data: 1 } }],
+          pipeline: [
+            {
+              $match: {
+                event: {
+                  $in: [
+                    EEnquiryEvent.REGISTRATION_FEE_RECEIVED,
+                    EEnquiryEvent.SCHOOL_TOUR_SCHEDULED,
+                    EEnquiryEvent.SCHOOL_TOUR_RESCHEDULE,
+                    EEnquiryEvent.SCHOOL_TOUR_COMPLETED,
+                    EEnquiryEvent.COMPETENCY_TEST_SCHEDULED,
+                    EEnquiryEvent.COMPETENCY_TEST_RESCHEDULED,
+                    EEnquiryEvent.ADMISSION_APPROVED,
+                    EEnquiryEvent.ENQUIRY_CLOSED,
+                    EEnquiryEvent.ENQUIRY_REOPENED,
+                    EEnquiryEvent.ADMISSION_FEE_RECEIVED,
+                    EEnquiryEvent.ADMISSION_COMPLETED,
+                    EEnquiryEvent.REGISTRATION_DETAILS_RECIEVED,
+                    EEnquiryEvent.PAYMENT_RECEIVED,
+                  ],
+                },
+              },
+            },
+            {
+              $sort: {
+                _id: -1,
+              },
+            },
+            {
+              $project: {
+                event: 1,
+                created_at: 1,
+                log_data: 1,
+              },
+            },
+          ],
         },
       },
 
-      // Enrichment flags + dimension fields
+      // Enrichment flags + dimension fields with safe $ifNull guards
       {
         $addFields: {
           school_id: '$school_location.id',
@@ -10416,23 +10960,29 @@ const feeData = await response.json();
           source: { $ifNull: ['$enquiry_source.value', 'NA'] },
           subSource: { $ifNull: ['$enquiry_sub_source.value', 'NA'] },
 
-          // Status flags
+          // Status flags - using improved walkin detection logic from admissionEnquiryReport
           hasWalkin: {
             $cond: [
               {
-                $or: [
-                  { $and: [{ $ifNull: ['$walkin_date', false] }, { $ne: ['$walkin_date', null] }] },
+                $gt: [
                   {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: { $eq: ['$$l.event', EEnquiryEvent.SCHOOL_TOUR_COMPLETED] },
+                    $size: {
+                      $filter: {
+                        input: { $ifNull: ['$enquiryLogs', []] },
+                        as: 'log',
+                        cond: {
+                          $in: [
+                            '$$log.event',
+                            [
+                              EEnquiryEvent.SCHOOL_TOUR_COMPLETED,
+                              EEnquiryEvent.REGISTRATION_FEE_RECEIVED,
+                            ],
+                          ],
                         },
                       },
-                    }, 0],
+                    },
                   },
+                  0,
                 ],
               },
               1,
@@ -10443,19 +10993,19 @@ const feeData = await response.json();
           hasKitSold: {
             $cond: [
               {
-                $or: [
-                  { $and: [{ $ifNull: ['$kit_sold_date', false] }, { $ne: ['$kit_sold_date', null] }] },
+                $gt: [
                   {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: { $eq: ['$$l.event', EEnquiryEvent.REGISTRATION_FEE_RECEIVED] },
+                    $size: {
+                      $filter: {
+                        input: { $ifNull: ['$enquiryLogs', []] },
+                        as: 'log',
+                        cond: {
+                          $eq: ['$$log.event', EEnquiryEvent.REGISTRATION_FEE_RECEIVED],
                         },
                       },
-                    }, 0],
+                    },
                   },
+                  0,
                 ],
               },
               1,
@@ -10466,21 +11016,27 @@ const feeData = await response.json();
           hasRegistration: {
             $cond: [
               {
-                $gt: [{
-                  $size: {
-                    $filter: {
-                      input: { $ifNull: ['$enquiryLogs', []] },
-                      as: 'l',
-                      cond: {
-                        $in: ['$$l.event', [
-                          EEnquiryEvent.REGISTRATION_FEE_RECEIVED,
-                          EEnquiryEvent.REGISTRATION_DETAILS_RECIEVED,
-                          EEnquiryEvent.PAYMENT_RECEIVED,
-                        ]],
+                $gt: [
+                  {
+                    $size: {
+                      $filter: {
+                        input: { $ifNull: ['$enquiryLogs', []] },
+                        as: 'log',
+                        cond: {
+                          $in: [
+                            '$$log.event',
+                            [
+                              EEnquiryEvent.REGISTRATION_FEE_RECEIVED,
+                              EEnquiryEvent.REGISTRATION_DETAILS_RECIEVED,
+                              EEnquiryEvent.PAYMENT_RECEIVED,
+                            ],
+                          ],
+                        },
                       },
                     },
                   },
-                }, 0],
+                  0,
+                ],
               },
               1,
               0,
@@ -10491,23 +11047,31 @@ const feeData = await response.json();
             $cond: [
               {
                 $or: [
-                  { $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0] },
                   {
-                    $gt: [{
-                      $size: {
-                        $filter: {
-                          input: { $ifNull: ['$enquiryLogs', []] },
-                          as: 'l',
-                          cond: {
-                            $in: ['$$l.event', [
-                              EEnquiryEvent.ADMISSION_FEE_RECEIVED,
-                              EEnquiryEvent.ADMISSION_COMPLETED,
-                              EEnquiryEvent.ADMISSION_APPROVED,
-                            ]],
+                    $gt: [{ $size: { $ifNull: ['$admissionDetails', []] } }, 0],
+                  },
+                  {
+                    $gt: [
+                      {
+                        $size: {
+                          $filter: {
+                            input: { $ifNull: ['$enquiryLogs', []] },
+                            as: 'log',
+                            cond: {
+                              $in: [
+                                '$$log.event',
+                                [
+                                  EEnquiryEvent.ADMISSION_FEE_RECEIVED,
+                                  EEnquiryEvent.ADMISSION_COMPLETED,
+                                  EEnquiryEvent.ADMISSION_APPROVED,
+                                ],
+                              ],
+                            },
                           },
                         },
                       },
-                    }, 0],
+                      0,
+                    ],
                   },
                 ],
               },
@@ -10516,7 +11080,9 @@ const feeData = await response.json();
             ],
           },
 
-          isClosed: { $cond: [{ $eq: ['$status', EEnquiryStatus.CLOSED] }, 1, 0] },
+          isClosed: {
+            $cond: [{ $eq: ['$status', EEnquiryStatus.CLOSED] }, 1, 0],
+          },
         },
       },
 
@@ -10535,18 +11101,95 @@ const feeData = await response.json();
           },
           totalInquiry: { $sum: 1 },
           totalClosedInquiries: { $sum: '$isClosed' },
-          totalOpenInquiries: { $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] } },
+          totalOpenInquiries: {
+            $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] },
+          },
 
-          open_enquiry: { $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] } },
-          open_walkin: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasWalkin', 1] }] }, 1, 0] } },
-          open_kit_sold: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasKitSold', 1] }] }, 1, 0] } },
-          open_registration: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasRegistration', 1] }] }, 1, 0] } },
+          open_enquiry: {
+            $sum: { $cond: [{ $eq: ['$isClosed', 0] }, 1, 0] },
+          },
+          open_walkin: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasWalkin', 1] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          open_kit_sold: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$isClosed', 0] }, { $eq: ['$hasKitSold', 1] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          open_registration: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$isClosed', 0] },
+                    { $eq: ['$hasRegistration', 1] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
 
-          closed_enquiry: { $sum: { $cond: [{ $eq: ['$isClosed', 1] }, 1, 0] } },
-          closed_walkin: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasWalkin', 1] }] }, 1, 0] } },
-          closed_kit_sold: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasKitSold', 1] }] }, 1, 0] } },
-          closed_registration: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasRegistration', 1] }] }, 1, 0] } },
-          closed_admission: { $sum: { $cond: [{ $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasAdmission', 1] }] }, 1, 0] } },
+          closed_enquiry: {
+            $sum: { $cond: [{ $eq: ['$isClosed', 1] }, 1, 0] },
+          },
+          closed_walkin: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasWalkin', 1] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          closed_kit_sold: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$isClosed', 1] }, { $eq: ['$hasKitSold', 1] }] },
+                1,
+                0,
+              ],
+            },
+          },
+          closed_registration: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$isClosed', 1] },
+                    { $eq: ['$hasRegistration', 1] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          closed_admission: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$isClosed', 1] },
+                    { $eq: ['$hasAdmission', 1] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
         },
       },
 
@@ -10566,33 +11209,177 @@ const feeData = await response.json();
 
           open: {
             enquiry: '$open_enquiry',
-            enquiry_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_enquiry', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            enquiry_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$open_enquiry', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             walkin: '$open_walkin',
-            walkin_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_walkin', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            walkin_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$open_walkin', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             kit_sold: '$open_kit_sold',
-            kit_sold_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_kit_sold', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            kit_sold_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$open_kit_sold', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             registration: '$open_registration',
-            registration_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$open_registration', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            registration_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$open_registration', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
           },
 
           closed: {
             enquiry: '$closed_enquiry',
-            enquiry_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_enquiry', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            enquiry_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$closed_enquiry', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             walkin: '$closed_walkin',
-            walkin_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_walkin', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            walkin_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$closed_walkin', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             kit_sold: '$closed_kit_sold',
-            kit_sold_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_kit_sold', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            kit_sold_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$closed_kit_sold', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             registration: '$closed_registration',
-            registration_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_registration', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            registration_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$closed_registration', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
 
             admission: '$closed_admission',
-            admission_pct: { $cond: [{ $gt: ['$totalInquiry', 0] }, { $round: [{ $multiply: [{ $divide: ['$closed_admission', '$totalInquiry'] }, 100] }, 2] }, 0] },
+            admission_pct: {
+              $cond: [
+                { $gt: ['$totalInquiry', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$closed_admission', '$totalInquiry'] },
+                        100,
+                      ],
+                    },
+                    2,
+                  ],
+                },
+                0,
+              ],
+            },
           },
 
           totalOpenInquiries: 1,
@@ -10600,33 +11387,49 @@ const feeData = await response.json();
         },
       },
 
-      { $sort: { school: 1, course: 1, board: 1, grade: 1, stream: 1, source: 1, subSource: 1 } },
+      {
+        $sort: {
+          school: 1,
+          course: 1,
+          board: 1,
+          grade: 1,
+          stream: 1,
+          source: 1,
+          subSource: 1,
+        },
+      }
     );
-    // console.log("pipeline=>\n", JSON.stringify(pipeline, null, 2));
 
-    const aggRows = await this.enquiryRepository.aggregate(pipeline).allowDiskUse(true);
-    // console.log("aggRows Count=>>", aggRows?.length)
+    const aggRows = await this.enquiryRepository
+      .aggregate(pipeline)
+      .allowDiskUse(true);
 
     // Collect school IDs for MDM lookup
-    const schoolIds = [...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean))];
+    const schoolIds = [
+      ...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean)),
+    ];
 
     // No MDM? return merged rows with cluster=NA (but still apply any non-cluster filters)
     if (!schoolIds.length) {
       let rowsWithCluster = aggRows.map((r) => ({ cluster: 'NA', ...r }));
       // If cluster filter was requested, nothing will match (because cluster NA) — return filtered result
       if (filters && filters.cluster && filters.cluster.length) {
-        rowsWithCluster = rowsWithCluster.filter((rr) => filters.cluster.includes(rr.cluster));
+        rowsWithCluster = rowsWithCluster.filter((rr) =>
+          filters.cluster.includes(rr.cluster)
+        );
       }
       return this.enquiryHelper.mergeVisibleRows(rowsWithCluster);
     }
 
-    // Fetch MDM school metadata
-    const schoolDetailsResp = await this.mdmService.postDataToAPI(MDM_API_URLS.SEARCH_SCHOOL, {
-      operator: `school_id In (${schoolIds.toString()})`,
-    });
+    // Fetch MDM school metadata - using same pattern as admissionEnquiryReport
+    const schoolDetails = await this.mdmService.postDataToAPI(
+      MDM_API_URLS.SEARCH_SCHOOL,
+      {
+        operator: `school_id In (${schoolIds.toString()})`,
+      }
+    );
 
-    const mdmSchools: any[] = schoolDetailsResp?.data?.schools ?? [];
-    const normalizeGrade = (g: string) => g?.replace(/^Grade\s*/i, '').trim().toLowerCase() || '';
+    const mdmSchools: any[] = schoolDetails?.data?.schools ?? [];
 
     // Attach cluster
     const finalRows = aggRows.map((r) => {
@@ -10634,9 +11437,6 @@ const feeData = await response.json();
 
       const matched = mdmSchools.find((s) => {
         if (String(s.school_id) !== String(r.school_id)) return false;
-        // if (s.grade_name) {
-        //   return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
-        // }
         return true;
       });
 
@@ -10650,10 +11450,13 @@ const feeData = await response.json();
     // If cluster[] filter exists, filter here (cluster is from MDM)
     let filteredByClusterRows = finalRows;
     if (filters && filters.cluster && filters.cluster.length) {
-
       const requested = filters.cluster.map((c: any) => String(c).trim());
-      const requestedIds = new Set(requested.filter(r => /^\d+$/.test(r)).map(r => r)); // "2", "10"
-      const requestedNames = new Set(requested.filter(r => !/^\d+$/.test(r)).map(r => r.toLowerCase())); // "cluster 1"
+      const requestedIds = new Set(
+        requested.filter((r) => /^\d+$/.test(r)).map((r) => r)
+      ); // "2", "10"
+      const requestedNames = new Set(
+        requested.filter((r) => !/^\d+$/.test(r)).map((r) => r.toLowerCase())
+      ); // "cluster 1"
 
       // Collect school_ids from mdmSchools that belong to requested clusters
       const allowedSchoolIds = new Set<string>();
@@ -10664,9 +11467,14 @@ const feeData = await response.json();
 
         // try common cluster shapes
         const clusterId = s.cluster_id ?? s.cluster?.id;
-        const clusterName = (s.cluster_name ?? s.cluster?.name ?? s.cluster?.cluster_name) || null;
+        const clusterName =
+          s.cluster_name ?? s.cluster?.name ?? s.cluster?.cluster_name ?? null;
 
-        if (clusterId !== undefined && clusterId !== null && requestedIds.has(String(clusterId))) {
+        if (
+          clusterId !== undefined &&
+          clusterId !== null &&
+          requestedIds.has(String(clusterId))
+        ) {
           allowedSchoolIds.add(String(schoolId));
           return;
         }
@@ -10678,15 +11486,23 @@ const feeData = await response.json();
       });
 
       if (allowedSchoolIds.size === 0) {
-        console.log('Cluster filter did not match any MDM schools. requested=', requested);
+        console.log(
+          'Cluster filter did not match any MDM schools. requested=',
+          requested
+        );
         filteredByClusterRows = [];
       } else {
-        filteredByClusterRows = finalRows.filter((r) => allowedSchoolIds.has(String(r.school_id)));
+        filteredByClusterRows = finalRows.filter((r) =>
+          allowedSchoolIds.has(String(r.school_id))
+        );
       }
     }
 
     // Merge identical visible rows
-    return this.enquiryHelper.mergeVisibleRows(filteredByClusterRows, filters?.group_by);
+    return this.enquiryHelper.mergeVisibleRows(
+      filteredByClusterRows,
+      filters?.group_by
+    );
   }
 
   async generateAndUploadSourceWiseInquiryStatusCsv(
@@ -10853,14 +11669,59 @@ const feeData = await response.json();
       const queryData: any = await queryResponse.json();
 
       // 3. Process data for XLSX
-      const cols = queryData.map((obj) => Object.keys(obj));
-      const headers = cols[0] || [];
+      const desiredOrder = [
+        'Enrollment Number',
+        'Enquiry Number',
+        'Student Id',
+        'Father Email',
+        'Child Custody',
+        'Father Mobile No',
+        'Enquiry No',
+        'Report Card (Previous Year)',
+        'Current Address City',
+        'Current Address Country',
+        'Current Address Landmark',
+        'Course',
+        'Board',
+        'Sub-Caste',
+        'Grade',
+        'School Leaving Certificate / Transfer Certificate / Bonafide Ce',
+        'Mother Tongue',
+        'Nationality',
+        'Father First Name',
+        'Gender',
+        'Single Parent?',
+        'Student First Name',
+        'Father Last Name',
+        'Aadhar card of Father',
+        'Student Last Name',
+        'Mother First Name',
+        'Current Address State',
+        'Aadhar card of Student',
+        'Academic Year',
+        'Current Address Street',
+        'Mother Mobile No',
+        'DOB',
+        'Mother Email',
+        'Caste',
+        'Current Address Pincode',
+        'Stream',
+        'Current Address House',
+        'Photocopy of Passport and Visa',
+        'Birth certificate of Student',
+        'Mother Last Name',
+        'Student Aadhar Number',
+        'Student Present Residential Proof',
+        'Shift',
+        'Aadhar card of Mother',
+        'School Location'
+      ];
 
-      // If queryData is an array of objects
-       const rows = queryData.map((obj) => Object.values(obj));
+      const headers = desiredOrder;
+      const rows = queryData.map((obj) => desiredOrder.map((key) => obj[key] ?? ''));
 
-       const excelData = [headers, ...rows];
-
+      const excelData = [headers, ...rows];
+       
        // Handle case where Metabase returns specific structure (data.cols, data.rows) or just array of objects
        // The /query/json usually returns just an array of objects key-value pairs.
        // If it was /query it might be different. based on "json" in url, it's likely array of objects.
@@ -10944,9 +11805,35 @@ const feeData = await response.json();
       const queryData: any = await queryResponse.json();
 
       // 3. Process data for XLSX
-      const cols = queryData.map((obj) => Object.keys(obj));
-      const headers = cols[0] || [];
-      const rows = queryData.map((obj) => Object.values(obj));
+       const desiredOrder = [
+        'Cluster',
+        'School Name',
+        'Shift',
+        'Course',
+        'Board',
+        'Grade',
+        'Stream',
+        'Division',
+        'Student ID',
+        'Global Parent IDs',
+        'Student Full Name',
+        'Student Profile Filled',
+        'Student Profile Total Mandatory',
+        'Student Profile Percentage',
+        'Parent Profile Filled',
+        'Parent Profile Total Mandatory',
+        'Parent Profile Percentage',
+        'Document Filled',
+        'Document Total Mandatory',
+        'Document Percentage',
+        'Total Filled',
+        'Total Mandatory',
+        'Total Percentage',
+        'Enrollment No'
+      ];
+
+      const headers = desiredOrder;
+      const rows = queryData.map((obj) => desiredOrder.map((key) => obj[key] ?? ''));
       const excelData = [headers, ...rows];
 
       const buffer = xlsx.build([{ name: 'Student Profile Summary', data: excelData, options: {} }]);
@@ -11319,117 +12206,64 @@ const feeData = await response.json();
     }
   }
 
-async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
-    // helper to parse DD-MM-YYYY -> Date
-    const toDate = (s?: string | null): Date | null => {
-      if (!s) return null;
-      const str = String(s).trim();
-      if (!str) return null;
+  async outsideTatFollowupReport(filters: any = null) {
+    try {
+        let roleFilter: any = null;
 
-      // dd-mm-yyyy
-      const parts = str.split("-");
-      if (parts.length === 3 && parts[0].length <= 2) {
-        const [d, m, y] = parts;
-        const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00.000Z`;
-        const dt = new Date(iso);
-        return isNaN(dt.getTime()) ? null : dt;
-      }
-      // fallback
-      const dt = new Date(str);
-      return isNaN(dt.getTime()) ? null : dt;
-    };
-    // Build initial matchConditions if filters provided
-    const matchConditions: any = {};
+      if (filters) {
+        const ccReCodesResp = getCcReHrisCodes();
+        const ccCodes = ccReCodesResp?.CC || [];
+        const reCodes = ccReCodesResp?.RE || [];
 
-    if (filters) {
-      const { start_date, end_date, filter_by } = filters;
+        const filterArray = Array.isArray(filters.filters) ? filters.filters : [];
+        const isAllRequested = filterArray.includes('All');
+        const isCcRequested = filterArray.includes('CC Only');
+        const isSchoolRequested = filterArray.includes('School Only');
 
-      const startDt = toDate(start_date || null);
-      const endDt = toDate(end_date || null);
-      if (endDt) endDt.setUTCHours(23, 59, 59, 999);
 
-      // Attach Date filter
-      if (startDt || endDt) {
-        matchConditions.enquiry_date = {};
-        if (startDt) matchConditions.enquiry_date.$gte = startDt;
-        if (endDt) matchConditions.enquiry_date.$lte = endDt;
-      }
-
-      // Apply filter_by logic (CC Only, School Only, All)
-      if (filter_by === 'CC Only') {
-        matchConditions['enquiry_mode.value'] = {
-          $in: ['Phone Call', 'Phone Call (IVR) -Toll free', 'Phone Call -School'],
-        };
-        } else if (filter_by === 'School Only') {
-        matchConditions['enquiry_mode.value'] = {
-          $in: ['Walkin', 'Walkin (VMS)'],
-        };
-      }
-
-      if (filters.school_id && filters.school_id.length) {
-        const ids = filters.school_id.map((s: string) => {
-          const n = Number(s);
-          return Number.isNaN(n) ? s : n;
-        });
-        matchConditions['school_location.id'] = { $in: ids };
+        if (!isAllRequested) {
+          if (isCcRequested && isSchoolRequested) {
+            // Pass both CC and RE codes
+            const combinedCodes = [...ccCodes, ...reCodes];
+            if (combinedCodes.length) {
+              const globalUserIds = await this.getGlobalUserIdsByRoleCodes(combinedCodes);
+              roleFilter = { assigned_to_id: { $in: globalUserIds } };
+              if (!globalUserIds.length) {
+                roleFilter = { assigned_to_id: { $in: [] } };
+              }
+            }
+          } else if (isCcRequested) {
+            // Only CC codes
+            if (ccCodes.length) {
+              const globalUserIds = await this.getGlobalUserIdsByRoleCodes(ccCodes);
+              roleFilter = { assigned_to_id: { $in: globalUserIds } };
+              if (!globalUserIds.length) {
+                roleFilter = { assigned_to_id: { $in: [] } };
+              }
+            }
+          } else if (isSchoolRequested) {
+            // Outside CC codes
+            if (ccCodes.length) {
+              const globalUserIds = await this.getGlobalUserIdsByRoleCodes(ccCodes);
+              if (globalUserIds.length) {
+                roleFilter = { assigned_to_id: { $nin: globalUserIds } };
+              }
+            }
+          }
+        }
       }
 
-      // Helper to convert to numbers if possible, else keep strings
-      // const buildIn = (arr?: string[]) => {
-      //   if (!arr || !arr.length) return null;
-      //   const vals = arr.map((s) => {
-      //     const n = Number(s);
-      //     return Number.isNaN(n) ? s : n;
-      //   });
-      //   return Array.from(new Set(vals));
-      // };
-
-      // Strict matching using fields present in your document sample
-      // if (filters.school && filters.school.length) {
-      //   const v = buildIn(filters.school);
-      //   matchConditions['school_location.value'] = { $in: v };
-      // }
-
-      // if (filters.course && filters.course.length) {
-      //   const v = buildIn(filters.course);
-      //   matchConditions['enquiry_number.id'] = { $in: v };
-      // }
-
-      // if (filters.board && filters.board.length) {
-      //   const v = buildIn(filters.board);
-      //   matchConditions['enquiry_name.id'] = { $in: v };
-      // }
-
-      // if (filters.grade && filters.grade.length) {
-      //   const v = buildIn(filters.grade);
-      //   matchConditions['student_details.grade.id'] = { $in: v };
-      // }
-
-      // if (filters.stream && filters.stream.length) {
-      //   const v = buildIn(filters.stream);
-      //   matchConditions['stream.id'] = { $in: v };
-      // }
-
-      // if (filters.source && filters.source.length) {
-      //   const v = buildIn(filters.source);
-      //   matchConditions['enquiry_source.id'] = { $in: v };
-      // }
-
-      // if (filters.subSource && filters.subSource.length) {
-      //   const v = buildIn(filters.subSource);
-      //   matchConditions['enquiry_sub_source.id'] = { $in: v };
-      // }
-    }
-
-    // Build aggregation pipeline (lookups + flags + grouping + percentage)
-    const pipeline: any[] = [];
-
-    // If matchConditions has keys, push $match stage as the first stage
-    if (Object.keys(matchConditions).length) {
-      pipeline.push({ $match: matchConditions });
-    }
-
-    pipeline.push(
+      const pipeline =[
+        {
+          $match: {
+            $and: [
+              {
+                status: "Open"
+              },
+              (roleFilter ? roleFilter : {})
+            ]
+          },
+        },
         {
           $lookup: {
             from: 'followUps',
@@ -11442,7 +12276,80 @@ async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
                   _id: -1,
                 },
               },
-            ]
+            ],
+          },
+        },
+        {
+          $addFields: {
+            nextFollowUpDate: {
+              $cond: {
+                if: {
+                  $and: [
+                    { $eq: ['$enquiry_mode.value', 'Digital (website)'] },
+                    { $eq: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
+                  ],
+                },
+                then: '$created_at',
+                else: {
+                  $cond: {
+                    if: {
+                      $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0],
+                    },
+                    then: {
+                      $let: {
+                        vars: {
+                          dateValue: {
+                            $arrayElemAt: [
+                              { $ifNull: ['$lastFollowUps.date', []] },
+                              0,
+                            ],
+                          },
+                        },
+                        in: {
+                          $cond: {
+                            if: {
+                              $and: [
+                                { $ne: ['$$dateValue', null] },
+                                { $ne: ['$$dateValue', 'Invalid Date'] },
+                                { $ne: [{ $type: '$$dateValue' }, 'date'] }, // If already a date, use it directly
+                              ],
+                            },
+                            then: {
+                              $dateFromString: {
+                                dateString: '$$dateValue',
+                                onError: null,
+                                onNull: null,
+                              },
+                            },
+                            else: {
+                              $cond: {
+                                if: { $eq: [{ $type: '$$dateValue' }, 'date'] },
+                                then: '$$dateValue',
+                                else: null,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    else: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            last_follow_up_remarks: {
+              $cond: {
+                if: { $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
+                then: {
+                  $arrayElemAt: [{ $ifNull: ['$lastFollowUps.remarks', []] }, 0],
+                },
+                else: 'NA',
+              },
+            },
           },
         },
         {
@@ -11533,203 +12440,319 @@ async outsideTatFollowupReport(filters: any = null): Promise<any[]> {
                 default: null,
               },
             },
-            nextFollowUpDate: {
-              $cond: {
-                if: {
-                  $and: [
-                    { $eq: ['$enquiry_mode.value', 'Digital (website)'] },
-                    { $eq: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0] },
-                  ],
-                },
-                then: { $toDate: '$created_at' },
-                else: {
-                  $cond: {
-                    if: {
-                      $gt: [{ $size: { $ifNull: ['$lastFollowUps', []] } }, 0],
-                    },
-                    then: {
-                      $dateFromString: {
-                        dateString: {
-                          $arrayElemAt: [
-                            { $ifNull: ['$lastFollowUps.date', []] },
-                            0,
-                          ],
-                        },
-                        format: '%d-%m-%Y',
-                        onError: null,
-                      },
-                    },
-                    else: null,
-                  },
-                },
-              },
-            },
           },
         },
         {
           $addFields: {
             overdue_days_of_follow_up: {
               $cond: {
-                if: { $ne: ['$nextFollowUpDate', null] },
+                if: {
+                  $ne: ['$nextFollowUpDate', null],
+                },
                 then: {
-                  $dateDiff: {
-                    startDate: '$nextFollowUpDate',
-                    endDate: '$$NOW',
-                    unit: 'day',
-                  },
+                  $max: [
+                    {
+                      $dateDiff: {
+                        startDate: '$nextFollowUpDate',
+                        endDate: '$$NOW',
+                        unit: 'day',
+                      },
+                    },
+                    0,
+                  ],
                 },
                 else: null,
               },
             },
           },
         },
-
-      // Group by visible dimensions
-
-
-      // Percentage calculation
         {
-        $project: {
-          _id: 1,
-          school_name: '$school_location.value',
-          enquiry_number: '$enquiry_number',
-          enquiry_date: {
-            $dateToString: {
-              format: '%d-%m-%Y',
-              date: '$enquiry_date'
-            }
-          },
-          enquirer_name : 1,
-          student_name: {
-            $concat: [
-              { $ifNull: ['$student_details.first_name', ''] },
-              ' ',
-              { $ifNull: ['$student_details.last_name', ''] },
-            ],
-          },
-          academic_year: '$academic_year.value',
-          grade: '$student_details.grade.value',
-          contact_number: 1,
-          enquiry_stage: {
-            $let: {
-              vars: {
-                lastStage: { $arrayElemAt: ['$enquiry_stages', -1] }
-              },
-              in: {
-                $concat: [
-                   { $ifNull: ['$$lastStage.stage_name', ''] },
-                   ' - ',
-                   { $ifNull: ['$$lastStage.status', ''] }
-                ]
-              }
-            }
-          },
-          current_lead_owner: '$assigned_to',
-          follow_up_date: {
-            $cond: {
-              if: { $ne: ['$nextFollowUpDate', null] },
-              then: {
-                $dateToString: {
-                  format: '%d/%m/%Y',
-                  date: '$nextFollowUpDate',
-                },
-              },
-              else: null,
+          $match: {
+            $expr: {
+              $gt: ['$overdue_days_of_follow_up', 0],
             },
           },
-          ageing_in_days: { $ifNull: ['$overdue_days_of_follow_up', 0] },
-          school_location: 1,
-          school_id: '$school_location.id',
         },
-      },
-      {
-        $sort: { created_at: -1 },
-      },
+        {
+          $project: {
+            _id: 1,
+            school_name: '$school_location.value',
+            school_id: '$school_location.id',
+            enquiry_number: '$enquiry_number',
+            enquiry_date: '$created_at',
+            student_first_name: '$student_details.first_name',
+            student_last_name: '$student_details.last_name',
+            enquiry_stages: 1,
+            current_owner: '$assigned_to',
+            academic_year: '$academic_year.value',
+            created_at: '$created_at',
+            enquiry_status: '$status',
+            contact_number: 1,
+            enquirer_name: 1,
+            next_follow_up_at: '$next_follow_up_at',
+            next_follow_up_date: {
+              $cond: {
+                if: {
+                  $ne: ['$nextFollowUpDate', null],
+                },
+                then: {
+                  $dateToString: {
+                    format: '%d-%m-%Y',
+                    date: '$nextFollowUpDate',
+                  },
+                },
+                else: null,
+              },
+            },
+            next_follow_up_date_overdue_days: '$overdue_days_of_follow_up',
+          },
+        },
+        {
+          $sort: { created_at: -1 },
+        },
+      ];
+
+      const cursor = await this.enquiryRepository.aggregateCursor(pipeline);
+
+
+      const schoolIdsSet = new Set<string>();
+      const enquiries = [];
+      let recordCount = 0;
+      const BATCH_SIZE = 5000; // Larger batch size for efficiency
+
+      // First pass: collect school IDs and transform data
+      try {
+        for await (const e of cursor) {
+          recordCount++;
+
+          if (e.school_id && ![false, null, undefined, ''].includes(e.school_id)) {
+            schoolIdsSet.add(e.school_id);
+          }
+
+          // Calculate follow-up data
+          let followUpdate = e?.next_follow_up_date;
+          let followUpdateOverdueDays = e?.next_follow_up_date_overdue_days;
+
+          if (!followUpdate && e?.next_follow_up_at) {
+            const nextFollowUp = e.next_follow_up_at;
+            if (typeof nextFollowUp === 'string') {
+              const parts = nextFollowUp.split('T');
+              followUpdate = parts.length > 0
+                ? parts[0].split('-').reverse().join('-')
+                : null;
+            } else if (nextFollowUp instanceof Date) {
+              const parts = nextFollowUp.toISOString().split('T');
+              followUpdate = parts.length > 0
+                ? parts[0].split('-').reverse().join('-')
+                : null;
+            }
+          }
+
+          if (followUpdateOverdueDays == null && e?.next_follow_up_at) {
+            const today = new Date();
+            const inputDate = typeof e.next_follow_up_at === 'string'
+              ? new Date(e.next_follow_up_at)
+              : e.next_follow_up_at;
+
+            if (inputDate.getTime() < today.getTime()) {
+              const diffInMs = today.getTime() - inputDate.getTime();
+              followUpdateOverdueDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+            } else {
+              followUpdateOverdueDays = 0;
+            }
+          }
+
+          enquiries.push({
+            school_id: e?.school_id,
+            'Enquiry No': e?.enquiry_number ?? 'NA',
+            'Lead Generation Date': moment(e.enquiry_date).format('DD-MM-YYYY'),
+            'Student First Name': e?.student_first_name ?? '',
+            'Student Last Name': e?.student_last_name ?? '',
+            'Enquirer Name': e?.enquirer_name ?? 'NA',
+            'Contact Number': e?.contact_number ?? 'NA',
+            'Current Owner': e?.current_owner ?? 'NA',
+            'Enquiry for Academic Year': e?.academic_year ?? 'NA',
+            'Current Stage': this.enquiryHelper.getCurrentEnquiryStage(e?.enquiry_stages) ?? 'NA',
+            'Next Follow up date': followUpdate ?? 'NA',
+            'Next Follow up overdue days': followUpdateOverdueDays ?? 'NA',
+            'Last Follow Up Remarks': e?.last_follow_up_remarks ?? 'NA',
+          });
+        }
+      } catch (error) {
+        console.error('Error processing cursor:', error);
+        throw error;
+      }
+
+
+      if (!enquiries.length) {
+        throw new HttpException(
+          'Enquiries not found for the provided academic year id',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // Fetch school details
+      console.log('Fetching school details...');
+      const schoolIds = Array.from(schoolIdsSet);
+
+      // If too many school IDs, batch the API calls
+      const schoolDetailsMap = new Map();
+      const SCHOOL_API_BATCH = 1000;
+
+      for (let i = 0; i < schoolIds.length; i += SCHOOL_API_BATCH) {
+        const batchIds = schoolIds.slice(i, i + SCHOOL_API_BATCH);
+        console.log(`Fetching school batch ${Math.floor(i / SCHOOL_API_BATCH) + 1}...`);
+
+        const schoolDetails = await this.mdmService.postDataToAPI(
+          MDM_API_URLS.SEARCH_SCHOOL,
+          {
+            operator: `school_id In (${batchIds.toString()})`,
+          },
+        );
+
+        // Build lookup map
+        if (schoolDetails?.data?.schools?.length) {
+          for (const school of schoolDetails.data.schools) {
+            const key = `${school.school_id}`;
+            schoolDetailsMap.set(key, school);
+          }
+        }
+      }
+
+      // Process and merge in chunks to avoid memory issues
+      const updatedRecords = [];
+      const PROCESSING_BATCH = 10000;
+
+      for (let i = 0; i < enquiries.length; i += PROCESSING_BATCH) {
+        if (i % 50000 === 0) {
+          console.log(`Merging progress: ${i}/${enquiries.length}`);
+        }
+
+        const batch = enquiries.slice(i, i + PROCESSING_BATCH);
+
+        for (const enquiry of batch) {
+          const schoolKey = `${enquiry.school_id}`;
+          const schoolData = schoolDetailsMap.get(schoolKey);
+
+          const updatedRecord = {
+            Cluster: schoolData?.cluster_name ?? 'NA',
+            School: schoolData?.lob_description ?? 'NA',
+            'Enquiry Number': enquiry['Enquiry No'],
+            'Enquiry Date': enquiry['Lead Generation Date'],
+            'Enquiry Stage': enquiry['Current Stage'],
+            'Current Lead Owner': enquiry['Current Owner'],
+            'Follow Up Date': enquiry['Next Follow up date'],
+            'Ageing In Days': enquiry['Next Follow up overdue days'],
+            'Enquirer Name': enquiry['Enquirer Name'],
+            'Student Name': enquiry['Student First Name'] + ' ' + enquiry['Student Last Name'],
+            'Academic Year': enquiry['Enquiry for Academic Year'],
+            'Contact No.': enquiry['Contact Number']
+          };
+
+          updatedRecords.push(updatedRecord);
+        }
+
+        // Periodically allow garbage collection
+        if (i % 50000 === 0 && global.gc) {
+          global.gc();
+        }
+      }
+
+      const fields = [
+        'Cluster',
+        'School',
+        'Enquiry Number',
+        'Enquirer Name',
+        'Student Name',
+        'Academic Year',
+        'Contact No.',
+        'Enquiry Date',
+        'Enquiry Stage',
+        'Current Lead Owner',
+        'Follow Up Date',
+        'Ageing In Days'
+      ];
+
+      const date = new Date().toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+      });
+      const [month, day, year] = date.split(',')[0].split('/');
+      const filename = `OutsideTATFollowupReport-${day}-${month}-${year}-${date
+        .split(',')[1]
+        .trimStart()
+        .split(' ')[0]
+        .split(':')
+        .join('')}`;
+
+      const generatedCSV: any = await this.csvService.generateCsv(
+        updatedRecords,
+        fields,
+        filename,
+      );
+
+
+      const file: Express.Multer.File =
+        await this.fileService.createFileFromBuffer(
+          Buffer.from(generatedCSV.csv),
+          filename,
+          'text/csv',
+        );
+
+      await this.setFileUploadStorage();
+      const uploadedFileName = await this.storageService.uploadFile(
+        file,
+        filename,
+      );
+
+      const bucketName = this.configService.get<string>('BUCKET_NAME');
+
+      if (!uploadedFileName) {
+        throw new HttpException(
+          'Something went wrong while uploading file!',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      const signedUrl = await this.storageService.getSignedUrl(
+        bucketName,
+        uploadedFileName,
+        false,
+      );
+
+      return {
+        url: signedUrl,
+        fileName: uploadedFileName,
+      };
+    } catch (err) {
+      throw new HttpException(err?.message ?? 'Failed to generate/upload CSV', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  private async getGlobalUserIdsByRoleCodes(roleCodes: string[]): Promise<number[]> {
+    if (!roleCodes.length) return [];
+
+    const queryParams: any[][] = [];
+
+    roleCodes.forEach((code, index) => {
+      queryParams.push([
+        `filters[hr_hris_unique_role][HRIS_Unique_Role_Code][$in][${index}]`,
+        code,
+      ]);
+    });
+
+    const employeeResp = await this.mdmService.fetchDataFromAPI(
+      MDM_API_URLS.HR_EMPLOYEE_MASTER,
+      queryParams,
     );
-    // console.log("pipeline=>\n", JSON.stringify(pipeline, null, 2));
 
-    const aggRows = await this.enquiryRepository.aggregate(pipeline).allowDiskUse(true);
-    // console.log("aggRows Count=>>", aggRows?.length)
+    // Handle both { data: [...] } (Strapi) and direct [...] responses
+    const rawData = Array.isArray(employeeResp)
+      ? employeeResp
+      : employeeResp?.data || [];
 
-    // Collect school IDs for MDM lookup
-    const schoolIds = [...new Set(aggRows.map((r) => String(r.school_id)).filter(Boolean))];
-
-    // No MDM? return merged rows with cluster=NA (but still apply any non-cluster filters)
-    if (!schoolIds.length) {
-      let rowsWithCluster = aggRows.map((r) => ({ cluster: 'NA', ...r }));
-      // If cluster filter was requested, nothing will match (because cluster NA) — return filtered result
-      if (filters && filters.cluster && filters.cluster.length) {
-        rowsWithCluster = rowsWithCluster.filter((rr) => filters.cluster.includes(rr.cluster));
-      }
-      return this.enquiryHelper.mergeVisibleRows(rowsWithCluster);
-    }
-
-    // Fetch MDM school metadata
-    const schoolDetailsResp = await this.mdmService.postDataToAPI(MDM_API_URLS.SEARCH_SCHOOL, {
-      operator: `school_id In (${schoolIds.toString()})`,
-    });
-
-    const mdmSchools: any[] = schoolDetailsResp?.data?.schools ?? [];
-    const normalizeGrade = (g: string) => g?.replace(/^Grade\s*/i, '').trim().toLowerCase() || '';
-
-    // Attach cluster
-    const finalRows = aggRows.map((r) => {
-      let cluster = 'NA';
-
-      const matched = mdmSchools.find((s) => {
-        if (String(s.school_id) !== String(r.school_id)) return false;
-        if (s.grade_name) {
-          return normalizeGrade(s.grade_name) === normalizeGrade(r.grade);
-        }
-        return true;
-      });
-
-      if (matched) {
-        cluster = matched.cluster_name ?? 'NA';
-      }
-
-      return { cluster, ...r };
-    });
-
-    // If cluster[] filter exists, filter here (cluster is from MDM)
-    let filteredByClusterRows = finalRows;
-    if (filters && filters.cluster && filters.cluster.length) {
-
-      const requested = filters.cluster.map((c: any) => String(c).trim());
-      const requestedIds = new Set(requested.filter(r => /^\d+$/.test(r)).map(r => r)); // "2", "10"
-      const requestedNames = new Set(requested.filter(r => !/^\d+$/.test(r)).map(r => r.toLowerCase())); // "cluster 1"
-
-      // Collect school_ids from mdmSchools that belong to requested clusters
-      const allowedSchoolIds = new Set<string>();
-
-      mdmSchools.forEach((s: any) => {
-        const schoolId = s.school_id ?? s.schoolId;
-        if (!schoolId) return;
-
-        // try common cluster shapes
-        const clusterId = s.cluster_id ?? s.cluster?.id;
-        const clusterName = (s.cluster_name ?? s.cluster?.name ?? s.cluster?.cluster_name) || null;
-
-        if (clusterId !== undefined && clusterId !== null && requestedIds.has(String(clusterId))) {
-          allowedSchoolIds.add(String(schoolId));
-          return;
-        }
-
-        if (clusterName && requestedNames.has(String(clusterName).toLowerCase())) {
-          allowedSchoolIds.add(String(schoolId));
-          return;
-        }
-      });
-
-      if (allowedSchoolIds.size === 0) {
-        console.log('Cluster filter did not match any MDM schools. requested=', requested);
-        filteredByClusterRows = [];
-      } else {
-        filteredByClusterRows = finalRows.filter((r) => allowedSchoolIds.has(String(r.school_id)));
-      }
-    }
-
-    return filteredByClusterRows;
+    return rawData
+      .map((emp: any) => Number(emp.id))
+      .filter((id: number) => !isNaN(id));
   }
 
 
@@ -11751,7 +12774,7 @@ async generateAndUploadOutsideTatFollowupReportCsv(
         'Enquirer Name': r.enquirer_name ?? 'NA',
         'Student Name': r.student_name ?? 'NA',
         'Academic Year': r.academic_year ?? 'NA',
-        'Contact No.': r.contact_number ?? 'NA',
+        'Contact No.': r.contact_number ?? 'NA'
       }));
 
       const fields: string[] = [
@@ -11766,7 +12789,7 @@ async generateAndUploadOutsideTatFollowupReportCsv(
         'Enquiry Stage',
         'Current Lead Owner',
         'Follow Up Date',
-        'Ageing In Days',
+        'Ageing In Days'
       ];
 
       const date = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -11805,5 +12828,34 @@ async generateAndUploadOutsideTatFollowupReportCsv(
     } catch (err) {
       throw new HttpException(err?.message ?? 'Failed to generate/upload CSV', HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+  async getAcademicYearBySchoolBrand(payload: { school_id: number; brand_id: number; course_id: number; board_id: number }) {
+    // 1. Get School Brand ID
+    const schoolBrandData = await this.mdmService.fetchDataFromAPI(MDM_API_URLS.SCHOOL_BRAND, {
+        'filters[school_id]': payload.school_id,
+        'filters[brand_id]': payload.brand_id
+    });
+    
+    if (!schoolBrandData?.data?.length) {
+        throw new HttpException('School Brand not found', HttpStatus.NOT_FOUND);
+    }
+    const schoolBrandId = schoolBrandData.data[0].id;
+
+    // 2. Get Academic Year ID using School Brand ID, Course ID, Board ID
+    const schoolBrandBoardData = await this.mdmService.fetchDataFromAPI(MDM_API_URLS.SCHOOL_BRAND_BOARD, {
+        'filters[school_brand_id]': schoolBrandId,
+        'filters[course_id]': payload.course_id,
+        'filters[board_id]': payload.board_id,
+        'populate': 'academic_year'
+    });
+
+    if (!schoolBrandBoardData?.data?.length) {
+         throw new HttpException('School Brand Board configuration not found', HttpStatus.NOT_FOUND);
+    }
+    
+    // Handle potential structure variations
+    const boardData = schoolBrandBoardData.data[0].attributes;
+
+    return boardData
   }
 }

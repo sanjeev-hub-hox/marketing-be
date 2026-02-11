@@ -381,6 +381,13 @@ export class EnquiryHelper {
     const [enquiryDocuments] = await Promise.all([
       this.getDocumentListFromMDM(),
     ]);
+      console.log('createdByDetails?.user_name', createdByDetails?.user_name);
+
+      const created_by_name = createdByDetails?.user_name.trim().split(' ');
+      const firstName = created_by_name[0] || null;
+      const lastName = created_by_name?.length > 1 ? created_by_name[created_by_name?.length - 1] : null;
+      const parts = [firstName, lastName].filter(Boolean);
+
     defaultFields['documents'] = enquiryDocuments.map((document) => ({
       document_id: document.id,
       document_name: document?.attributes?.name,
@@ -393,7 +400,7 @@ export class EnquiryHelper {
     return {
       ...defaultFields,
       assigned_to_id: createdByDetails?.user_id ?? -1,
-      assigned_to: createdByDetails?.user_name ?? 'N/A',
+      assigned_to: parts?.length > 0 ? parts.join(' ') : 'N/A',
     };
   }
 
@@ -1257,17 +1264,7 @@ export class EnquiryHelper {
     response: any,
     transferredSchool: string
   ) {
-    // Deduplicate assignees based on Group_Employee_Code or Official_Email_ID
-    const uniqueAssigneesMap = new Map();
-    response.data.forEach((assignee: any) => {
-      const uniqueKey = assignee.attributes.Group_Employee_Code || assignee.attributes.Official_Email_ID || assignee.id;
-      if (!uniqueAssigneesMap.has(uniqueKey)) {
-        uniqueAssigneesMap.set(uniqueKey, assignee);
-      }
-    });
-    
-    const uniqueAssignees = Array.from(uniqueAssigneesMap.values());
-    const totalAssignees = uniqueAssignees.length;
+    const totalAssignees = response.data.length;
 
     if (totalAssignees === 0) {
       throw new Error(`No assignees available for round-robin assignment., RE:: ${JSON.stringify(CCANDRE.RE)}`);
@@ -1275,17 +1272,16 @@ export class EnquiryHelper {
 
     for (let index = 0; index < enquiryMaxLength; index++) {
       reIndex = (reIndex % totalAssignees);
-      const currentAssignee = uniqueAssignees[reIndex];
-      
-      const formattedName = this.constructUserName(null, {
-         first_name: currentAssignee.attributes.First_Name,
-         last_name: currentAssignee.attributes.Last_Name,
-         name: currentAssignee.attributes.Full_Name
-      });
+
+      const created_by_name = response.data[reIndex].attributes.Full_Name.trim().split(' ');
+      const firstName = created_by_name[0] || null;
+      const lastName = created_by_name.length > 1 ? created_by_name[created_by_name.length - 1] : null;
+      const parts = [firstName, lastName].filter(Boolean);
+
 
       const updatePayload: Partial<EnquiryDocument & Document> = {
-        assigned_to_id: currentAssignee.id,
-        assigned_to: formattedName || currentAssignee.attributes.Full_Name,
+        assigned_to_id: response.data[reIndex].id,
+        assigned_to: parts.length > 0 ? parts.join(' ') : null,
         round_robin_assigned:
           index === enquiryMaxLength - 1
             ? RoundRobinAssignedStatus.YES

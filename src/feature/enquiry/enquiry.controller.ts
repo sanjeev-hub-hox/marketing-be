@@ -501,18 +501,26 @@ export class EnquiryController {
       this.loggerService.log(
         `Transfer enquiry API called with the payload : ${JSON.stringify(reqBody)}`,
       );
-      const { enquiryIds, school_location } = reqBody;
+      const { enquiryIds } = reqBody;
       const updatedEnquiryDetails = await this.enquiryService.transfer(
-        enquiryIds,
-        school_location,
+        reqBody,
         req,
       );
-      return this.responseService.sendResponse(
-        res,
-        HttpStatus.OK,
-        updatedEnquiryDetails,
-        enquiryIds.length === 1 ? 'Enquiry transfered' : 'Enquiries transfered',
-      );
+      if (updatedEnquiryDetails?.status) {
+        return this.responseService.sendResponse(
+          res,
+          updatedEnquiryDetails.status,
+          updatedEnquiryDetails,
+          enquiryIds.length === 1 ? 'Enquiry transfered failed' : 'Enquiries transfered',
+        );
+      }else{
+        return this.responseService.sendResponse(
+          res,
+          HttpStatus.OK,
+          updatedEnquiryDetails,
+          enquiryIds.length === 1 ? 'Enquiry transfer' : 'Enquiries transfer',
+        );
+      }
     } catch (err: Error | unknown) {
       throw err;
     }
@@ -762,27 +770,6 @@ export class EnquiryController {
         req,
         enquiryId,
       );
-      return this.responseService.sendResponse(
-        res,
-        HttpStatus.OK,
-        result,
-        'Enquiry details found',
-      );
-    } catch (err: Error | unknown) {
-      throw err;
-    }
-  }
-
-  @Get('getEnquiryDetails')
-  async getEnquiryDetail(
-    @Res() res: Response,
-    @Query('enquiryId') enquiryId: string, 
-  ) {
-    try {
-      this.loggerService.log(
-        `Get enquiry details API with enquiryId: ${enquiryId}`,
-      );
-      const result = await this.enquiryService.getEnquiryDetail(enquiryId);
       return this.responseService.sendResponse(
         res,
         HttpStatus.OK,
@@ -2260,93 +2247,8 @@ export class EnquiryController {
     @Res() res: Response,
     @Req() req: Request,
   ) {
-    // parse filters from query (keeps GET-compatible)
-    const {
-      start_date,
-      end_date,
-      filter_by,   // "CC Only", "School Only", "All"
-      group_by,    // comma separated values if sent (not used in this report's grouping)
-    } = req.query as any;
 
-    // helper to coerce query params -> array
-    const toArray = (v: any) => {
-      if (v === undefined || v === null) return undefined;
-      if (Array.isArray(v)) return v;
-      // accept comma separated string too
-      return String(v)
-        .replace(/^\[+|\]+$/g, '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    };
-
-    const filters: any = {};
-    if (start_date) filters.start_date = start_date;
-    if (end_date) filters.end_date = end_date;
-    if (filter_by) filters.filter_by = filter_by;
-    // ensure group_by is always an array when present
-    if (group_by) {
-      filters.group_by = Array.isArray(group_by) ? group_by : String(group_by).split(',').map((s) => s.trim());
-    }
-
-    // Parse common multi-value filters (accept single, array, comma-separated)
-    const maybeArrayKeys = [
-      'cluster',
-      'school',
-      'school_id',
-      'enquiryNo',
-      'enquiryName',
-      'studentName',
-      'academicYear',
-      'contactNo',
-      'enquiryStage',
-      'currentOwner',
-      'followUpDate',
-      'ageingDays',
-    ];
-    maybeArrayKeys.forEach((k) => {
-      // allow both foo[] and foo
-      const val = toArray(
-        (req.query as any)[k] ?? (req.query as any)[`${k}[]`],
-      );
-      if (val && val.length) filters[k] = val;
-    });
-
-    const cacheKeyParts = [
-      'outside-tat-followup-report',
-      `start=${filters.start_date || 'NA'}`,
-      `end=${filters.end_date || 'NA'}`,
-      `filter_by=${filters.filter_by || 'All'}`,
-      `group_by=${filters.group_by ? filters.group_by.join('-') : 'default'}`,
-      `cluster=${filters.cluster ? filters.cluster.join('-') : 'NA'}`,
-      `school=${filters.school ? filters.school.join('-') : 'NA'}`,
-      `school_id=${filters.school_id ? filters.school_id.join('-') : 'NA'}`,
-      `course=${filters.enquiryNo ? filters.enquiryNo.join('-') : 'NA'}`,
-      `board=${filters.enquiryName ? filters.enquiryName.join('-') : 'NA'}`,
-      `grade=${filters.studentName ? filters.studentName.join('-') : 'NA'}`,
-      `stream=${filters.academicYear ? filters.academicYear.join('-') : 'NA'}`,
-      `source=${filters.contactNo ? filters.contactNo.join('-') : 'NA'}`,
-      `subSource=${filters.enquiryStage ? filters.enquiryStage.join('-') : 'NA'}`,
-      `currentOwner=${filters.currentOwner ? filters.currentOwner.join('-') : 'NA'}`,
-      `followUpDate=${filters.followUpDate ? filters.followUpDate.join('-') : 'NA'}`,
-      `ageingDays=${filters.ageingDays ? filters.ageingDays.join('-') : 'NA'}`,
-    ];
-    const cacheKey = cacheKeyParts.join(':');
-    const cachedData = await this.redisInstance?.getData(cacheKey);
-
-    if (cachedData) {
-      return this.responseService.sendResponse(
-        res,
-        HttpStatus.OK,
-        cachedData,
-        'Outside TAT details report found from redis',
-      );
-    }
-
-    // console.log("filters=>\n", JSON.stringify(filters, null, 2));
-    const finalRows = await this.enquiryService.outsideTatFollowupReport(filters);
-    const reportFile = await this.enquiryService.generateAndUploadOutsideTatFollowupReportCsv(finalRows);
-    await this.redisInstance?.setData(cacheKey, reportFile, 720);
+    const reportFile = await this.enquiryService.outsideTatFollowupReport(req.body);
 
     try {
       return this.responseService.sendResponse(
@@ -2426,26 +2328,25 @@ export class EnquiryController {
     @Res() res: Response,
     @Req() req: Request,
     @Body() body: any,
-    // @Query() query: { start_date?: string; end_date?: string },
   ) {
-    // const createdByDetails = extractCreatedByDetailsFromBody(req);
-    // const { user_id } = createdByDetails;
+    const createdByDetails = extractCreatedByDetailsFromBody(req);
+    const { user_id } = createdByDetails;
 
-    // const cacheKey = `user-${user_id}-admission-enquiry-report-${1}`;
-    // const cachedData = await this.redisInstance?.getData(cacheKey);
+    const cacheKey = `user-${user_id}-admission-enquiry-report-${1}`;
+    const cachedData = await this.redisInstance?.getData(cacheKey);
 
-    // if (cachedData) {
-    //   return this.responseService.sendResponse(
-    //     res,
-    //     HttpStatus.OK,
-    //     cachedData,
-    //     'Enquiry details report found',
-    //   );
-    // }
+    if (cachedData) {
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        cachedData,
+        'Enquiry details report found',
+      );
+    }
 
     const result = await this.enquiryService.sourceWiseConversionReport(body);
 
-    // await this.redisInstance?.setData(cacheKey, result, 60 * 10);
+    await this.redisInstance?.setData(cacheKey, result, 60 * 10);
 
     try {
       return this.responseService.sendResponse(
@@ -2643,6 +2544,27 @@ export class EnquiryController {
         error.status || HttpStatus.INTERNAL_SERVER_ERROR,
         error.message || 'Failed to fetch data from metabase'
       )
+    }
+  }
+  @Post('academic-year-by-school-brand')
+  async getAcademicYearBySchoolBrand(
+    @Res() res: Response,
+    @Body() body: { school_id: number; brand_id: number; course_id: number; board_id: number },
+  ) {
+    try {
+      const result = await this.enquiryService.getAcademicYearBySchoolBrand(body);
+      return this.responseService.sendResponse(
+        res,
+        HttpStatus.OK,
+        result,
+        'Academic year fetched successfully',
+      );
+    } catch (error) {
+      return this.responseService.errorResponse(
+        res,
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message || 'An error occurred fetching academic year',
+      );
     }
   }
 }

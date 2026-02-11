@@ -62,7 +62,7 @@ export const admissionAuthorizedRoutes = [
     path: '/marketing/admission/:enquiryId/submit-student-detail',
     method: RequestMethod.POST,
     permissions: '*',
-    authenticate: true,
+    authenticate: false,
     authorize: false,
   },
   {

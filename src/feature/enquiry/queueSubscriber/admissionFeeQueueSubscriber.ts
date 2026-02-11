@@ -74,20 +74,16 @@ export class AdmissionFeeQueueSubscriber extends WorkerHost {
       tPlusFiveDate.setDate(new Date().getDate() + 5);
       tPlusFiveDate.setHours(23, 59, 59, 999);
 
-      const isAdmissionFeeReceivedLog = await this.enquiryLogRepository.getOne({
-        enquiry_id: enquiryDetails._id,
-        event: EEnquiryEvent.ADMISSION_FEE_RECEIVED,
-      });
+      const isEnrGenerated = await this.admissionService.getadmisionDetails(
+        enquiryDetails._id,
+      );
 
-      if (isAdmissionFeeReceivedLog) {
-        this.loggerService.log(
-          `[JobId: ${job.id}] : Admission fee receive log already exists !!`,
-        );
-        this.loggerService.log(
-          `[JobId: ${job.id}] : Not proceeding to insert student details !!`,
-        );
+      if (isEnrGenerated.enrolment_number) {
+        this.loggerService.log(`Enrollment number already exists !!`);
+        this.loggerService.log(`Not proceeding to insert student details !!`);
         return true;
       }
+
 
       try {
         await this.enquiryLogService.createLog({

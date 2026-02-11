@@ -377,6 +377,13 @@ export class AdmissionService {
     return;
   }
 
+  async getadmisionDetails(
+    enquiryId: string,
+  ) {
+
+    return await this.admissionRepository.getByEnquiryId(new Types.ObjectId(enquiryId));
+  }
+
   async updateEnquiryStage(
     enquiryId: string,
     enquiryStages: any[],
@@ -1657,6 +1664,7 @@ export class AdmissionService {
         caste_id: student_details?.caste?.id,
         sub_caste_id: student_details?.sub_caste?.id,
         mother_tongue_id: student_details?.mother_tongue?.id,
+        adhar_no: student_details?.aadhar,
         emergency_contact_no:
           this.getEmergencyContact(
             other_details?.['parent_type'],
@@ -2002,7 +2010,25 @@ export class AdmissionService {
           status: EEnquiryStatus.CLOSED,
         });
       }
-    }
+    }     
+    
+    const newUrl = process.env.FINANCE_URL;
+    const res = await fetch(`${newUrl}/fee_collection/update/fee/Enquiry`, {
+      method: "POST",
+      headers: {
+        Authorization: req.headers.authorization,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        student_id: response?.data?.data?.student_profile?.id || response?.data?.data?.id,
+        enquiry_id: enquiryId,
+      }),
+    });
+
+    // fetch does NOT auto-parse JSON like axios
+    const data = await res.json();
+    console.log("update fee Enquiry", JSON.stringify(data));
+
     if (father_details?.global_id) {
       await this.globalUserMdmApi(father_details.global_id);
     }

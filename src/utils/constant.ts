@@ -38,6 +38,7 @@ export const MDM_API_URLS = {
   SUBMIT_SUBJECT_DETAILS: '/api/ac-nss-subject-selecteds',
   SCHOOL_BRAND: '/api/ac-school-brands',
   PROCESS_REQUEST: '/api/ac-student-process-request',
+  SCHOOL_BRAND_BOARD: '/api/ac-school-brand-boards',
 };
 export const FINANCE_API_URLS = {
   FEE_CREATE: '/transactions/student/fee/create',

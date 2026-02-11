@@ -224,8 +224,8 @@ export class AdmissionController {
     }
   }
 
-  // @Post(':enquiryId/submit-student-detail')
-  // @ApiParam({ name: 'enquiryId', required: true })
+  @Post(':enquiryId/submit-student-detail')
+  @ApiParam({ name: 'enquiryId', required: true })
   async addStudentDetail(
     @Req() req: Request,
     @Res() res: Response,

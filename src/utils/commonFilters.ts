@@ -139,7 +139,15 @@ export const buildFilter = (column: string, operation: string, value: any) => {
     case 'contains':
       return { [column]: { $regex: value, $options: 'i' } };
     case 'equals':
-      return { [column]: value };
+      return { [column]: column === 'overdueDays' ? Number(value) : value };
+    case 'greaterThan':
+      return { [column]: { $gt: Number(value) } };
+    case 'greaterThanOrEqual':
+      return { [column]: { $gte: Number(value) } };
+    case 'lessThan':
+      return { [column]: { $lt: Number(value) } };
+    case 'lessThanOrEqual':
+      return { [column]: { $lte: Number(value) } };
     case 'startsWith':
       return { [column]: { $regex: `^${value}`, $options: 'i' } };
     case 'endsWith':
